@@ -2,6 +2,9 @@ name: Verify TuinWerk OS
 on:
   push:
   pull_request:
+concurrency:
+  group: verify-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -28,6 +31,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm run migrate --workspace=@tuinwerk/api
       - run: npm run typecheck --workspaces --if-present
       - run: npm test --workspaces --if-present
@@ -39,6 +43,26 @@ jobs:
       - run: python3 -m unittest discover -s scripts/tests -v
       - run: POSTGRES_PASSWORD=ci_password APP_HOST=localhost docker compose config --quiet
       - run: docker build -f deploy/custom-app/Dockerfile -t tuinwerk-custom:ci .
+      - name: Verify built Custom App image and persistent restart
+        env:
+          TEST_ADMIN_EMAIL: container@example.test
+          TEST_ADMIN_PASSWORD: ci-container-password-0001
+        run: |
+          docker run -d --name tuinwerk-ci -p 127.0.0.1:38080:8080 -e ADMIN_EMAIL="$TEST_ADMIN_EMAIL" -e ADMIN_PASSWORD="$TEST_ADMIN_PASSWORD" tuinwerk-custom:ci
+          for attempt in $(seq 1 90); do
+            if [ "$(docker inspect --format='{{.State.Health.Status}}' tuinwerk-ci)" = healthy ]; then break; fi
+            if [ "$attempt" = 90 ]; then docker logs tuinwerk-ci; exit 1; fi
+            sleep 2
+          done
+          node scripts/runtime-smoke.mjs seed http://localhost:38080 /tmp/container-expected.json
+          docker restart tuinwerk-ci
+          for attempt in $(seq 1 90); do
+            if [ "$(docker inspect --format='{{.State.Health.Status}}' tuinwerk-ci)" = healthy ]; then break; fi
+            if [ "$attempt" = 90 ]; then docker logs tuinwerk-ci; exit 1; fi
+            sleep 2
+          done
+          node scripts/runtime-smoke.mjs verify http://localhost:38080 /tmp/container-expected.json
+          docker rm -fv tuinwerk-ci
       - run: npx playwright install --with-deps chromium
       - name: Start acceptance stack
         env:

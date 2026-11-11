@@ -25,14 +25,15 @@ De mobiele spraakinvoer gebruikt de corrigeerbare dicteerfunctie van het systeem
 ## Uitgevoerde verificatie
 
 - SQL-migraties vanaf lege PostgreSQL 17-database.
-- API-tests op echte PostgreSQL en HTTP: voorraadconcurrentie, idempotentie, privéplanning, sessies, rolrechten, TOTP, kalendergrenzen, seizoenen, readonly jaarprognoses, importconcurrentie, rapporten en budgetten.
-- Mobiele protocoltests: queuevolgorde/retries, conflictblokkering, accountscheiding, late-refreshbescherming, paginering en lokale versieprojectie.
+- 30 API-tests op echte PostgreSQL en HTTP: voorraadconcurrentie, idempotentie, privéplanning, sessies, rolrechten, TOTP, kalendergrenzen, seizoenen, readonly jaarprognoses, importconcurrentie, rapporten en budgetten.
+- 8 mobiele protocoltests: queuevolgorde/retries, conflictblokkering, accountscheiding, late-refreshbescherming, paginering en lokale versieprojectie.
 - TypeScript-controle van alle drie apps, API-productiebuild en Next-productiebuild.
 - Android- en iOS-Metrobundels, inclusief de beveiligingspatch voor image-size. **Dit zijn geen ondertekende APK/IPA-installatietests.**
-- Playwright tegen de productie-webapp: storing met verplichte checklist/afronden/heropenen; hoofdschermen en 390px-navigatie; voorraadontvangst, onvoldoende saldo en herstel met behouden invoer.
+- 4 Playwright-tests tegen de productie-webapp: storing met verplichte checklist/afronden/heropenen; hoofdschermen en 390px-navigatie; voorraadontvangst, onvoldoende saldo en herstel met behouden invoer; sjabloon toepassen en jaarprognose.
+- 4 back-upretentietests (bewaarselectie en bescherming van onbekende bestanden).
 - Echte Alpine-runtime met alle processen gezond, persistente foto, voorraadretry en onderhoudsherstart. Versleuteld archief hersteld op lege dataset; foto-SHA256, taak-/locatie-ID, saldo en unieke onderhoudsbeurt gelijk. Zie [concreet herstelverslag](TEST_DEPLOYMENT.md).
 
-De lokale complete multistage Docker-build liep tegen de 7,9 GB/VFS-omgevingslimiet aan. De bewezen runtimetest gebruikte dezelfde runtime en scripts met alleen-lezen gemounte gebouwde artifacts. De GitHub CI bouwt daarnaast de volledige image. Een remote build wordt pas als geslaagd vermeld nadat de workflow daadwerkelijk slaagt.
+De lokale complete multistage Docker-build liep tegen de 7,9 GB/VFS-omgevingslimiet aan. De bewezen runtimetest gebruikte dezelfde runtime en scripts met alleen-lezen gemounte gebouwde artifacts. De volledige multistage imagebuild is daarna wel geslaagd op de schone GitHub-runner: [buildcontrole](https://github.com/lvos04/tuinwerk-os/actions/runs/43079913792). De CI controleert aanvullend opstarten/herstarten van de gebouwde image.
 
 ## Onafhankelijke controles
 
@@ -57,3 +58,7 @@ Zes subagents leverden implementaties; agents controleerden daarnaast elkaars we
 - Voorbeeldprijzen voor AI moeten overeenkomen met de eigen provider; budgetten zijn gebaseerd op expliciet ingestelde tokenprijzen.
 
 Deze grenzen en externe acceptatiepoorten blijven zichtbaar. De software mag pas als volledig productie-geaccepteerd worden beschouwd nadat de toepasselijke controles op de doelomgeving en echte toestellen zijn afgerond.
+
+## Repository en controles
+
+De implementatie staat op branch `feat/complete-tuinwerk-os`, aangeboden als [concept-PR #1](https://github.com/lvos04/tuinwerk-os/pull/1). De workflow **Verify TuinWerk OS** voert tests, builds en browseracceptatie opnieuw uit op een schone GitHub-runner. De workflow **Build Custom App image** levert versievaste image-tags voor de TrueNAS-invultabel; alleen daadwerkelijk geslaagde gepubliceerde tags mogen als beschikbare image worden vermeld.

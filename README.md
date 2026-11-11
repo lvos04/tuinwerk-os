@@ -11,7 +11,7 @@ Nederlandstalige werkomgeving voor onderhoud, storingen, planning en onderdelenv
 | Native apps | `apps/mobile` | Expo, React Native, SQLite |
 | TrueNAS Custom App | `deploy/custom-app`, `docs` | Eén containerimage, installatie via invulvelden |
 
-Het oorspronkelijke [bouwplan](docs/BOUWPLAN.txt) en het [uitvoeringsplan](docs/UITVOERINGSPLAN.md) zijn opgenomen. De volledige productacceptatie omvat ook fysieke mobiele apparaten, signing en een hersteltest op de eigen TrueNAS-host. Raadpleeg het opleverrapport voor uitgevoerde tests en resterende acceptatiepunten.
+Het oorspronkelijke [bouwplan](docs/BOUWPLAN.txt) en het [uitvoeringsplan](docs/UITVOERINGSPLAN.md) zijn opgenomen. De volledige productacceptatie omvat ook fysieke mobiele apparaten, signing en een hersteltest op de eigen TrueNAS-host. Raadpleeg het [opleverrapport](docs/OPLEVERING.md) voor uitgevoerde tests en resterende acceptatiepunten.
 
 ## Installeren op TrueNAS
 

@@ -168,3 +168,48 @@ test("voorraad via schermen boeken en onvoldoende saldo afwijzen", async ({
   await d.getByRole("button", { name: "Mutatie bevestigen" }).click();
   await expect(d).toBeHidden();
 });
+
+test("sjabloon toepassen en volledige jaarprognose bekijken", async ({
+  page,
+}) => {
+  const suffix = String(Date.now()),
+    name = "Inspectie " + suffix;
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: /^Taken/ })
+    .click();
+  await page
+    .getByRole("button", { name: "Sjablonen, bulk wijzigen en AI" })
+    .click();
+  const d = page.getByRole("dialog");
+  await d.getByLabel("Sjabloonnaam", { exact: true }).fill(name);
+  await d.getByLabel("Standaardtitel", { exact: true }).fill(name);
+  await d
+    .getByLabel("Verplichte checklist (één punt per regel)")
+    .fill("Lekkage controleren");
+  await d
+    .getByRole("button", { name: "Sjabloon opslaan", exact: true })
+    .click();
+  await expect(
+    d.getByText("Sjabloon opgeslagen.", { exact: true }),
+  ).toBeVisible();
+  await d
+    .getByRole("combobox", { name: "Sjabloon", exact: true })
+    .selectOption({ label: name });
+  await d
+    .getByRole("button", { name: "Taak uit dit sjabloon aanmaken" })
+    .click();
+  await expect(
+    d.getByText("Nieuwe taak uit het sjabloon aangemaakt.", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Dialoog sluiten" }).click();
+  await page.getByLabel("Taken zoeken").fill(name);
+  await expect(page.getByText(name, { exact: true })).toBeVisible();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Planning", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Jaarplanning", exact: true }).click();
+  await expect(page.getByText("januari", { exact: true })).toBeVisible();
+  await expect(page.getByText("december", { exact: true })).toBeVisible();
+});
