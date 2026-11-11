@@ -15,7 +15,7 @@ Het oorspronkelijke [bouwplan](docs/BOUWPLAN.txt) en het [uitvoeringsplan](docs/
 
 ## Installeren op TrueNAS
 
-Gebruik de standaard **Custom App-interface**, zonder YAML. De gebundelde image bevat web, API, PostgreSQL en achtergrondtaken. Je koppelt één persistente dataset aan `/data` en stelt de webpoort en omgevingsvariabelen in via de interface. Volg de [installatiehandleiding met invultabel](docs/INSTALLATIE.md). Compose-bestanden in deze repository zijn uitsluitend voor ontwikkeling en tests.
+Gebruik de standaard **Custom App-interface**, zonder YAML. Geteste publieke releasecandidate: `ghcr.io/lvos04/tuinwerk-os:0.1.0-rc.1`. De gebundelde image bevat web, API, PostgreSQL en achtergrondtaken. Je koppelt één persistente dataset aan `/data` en stelt de webpoort en omgevingsvariabelen in via de interface. Volg de [installatiehandleiding met invultabel](docs/INSTALLATIE.md). Compose-bestanden in deze repository zijn uitsluitend voor ontwikkeling en tests.
 
 ## Ontwikkelen
 

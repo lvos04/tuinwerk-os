@@ -62,3 +62,7 @@ Deze grenzen en externe acceptatiepoorten blijven zichtbaar. De software mag pas
 ## Repository en controles
 
 De implementatie staat op branch `feat/complete-tuinwerk-os`, aangeboden als [concept-PR #1](https://github.com/lvos04/tuinwerk-os/pull/1). De workflow **Verify TuinWerk OS** voert tests, builds en browseracceptatie opnieuw uit op een schone GitHub-runner. De workflow **Build Custom App image** levert versievaste image-tags voor de TrueNAS-invultabel; alleen daadwerkelijk geslaagde gepubliceerde tags mogen als beschikbare image worden vermeld.
+
+## Geverifieerde releasecandidate
+
+`v0.1.0-rc.1` / container-tag `0.1.0-rc.1` is gepubliceerd. [De imageworkflow](https://github.com/lvos04/tuinwerk-os/actions/runs/43080459746) en [volledige CI met containerherstart en vier browserflows](https://github.com/lvos04/tuinwerk-os/actions/runs/43080466192) zijn geslaagd. Anonieme manifestopvraag gaf HTTP 200 met digest `sha256:b0637c742e26da055de6625b2861620f3f12f929aa6db0aeefc80169500f8098`. Hiermee zijn de bron-imagebuild en publicatie bewezen; de fysieke productiepoorten hierboven blijven staan.

@@ -4,7 +4,11 @@
 
 ## 1. Image beschikbaar maken
 
-De workflow **Build Custom App image** publiceert na een handmatige GitHub Actions-run of een `v*`-releasetag naar `ghcr.io/lvos04/tuinwerk-os`. Kies de daadwerkelijk geslaagde immutable `sha-...`-tag of releasetag uit GitHub Packages. De aanwezigheid van deze workflow betekent niet dat een image al gepubliceerd is. Maak het package leesbaar voor TrueNAS (publiek of passende registrycredentials). De image is voor x86-64/amd64; andere architecturen zijn niet geclaimd.
+De geteste releasecandidate is beschikbaar als **`ghcr.io/lvos04/tuinwerk-os:0.1.0-rc.1`**. De registry-manifest is op 11 november 2026 zonder authenticatie opgehaald; TrueNAS heeft voor deze publieke image geen registry-inlog nodig. De immutable manifestdigest is `sha256:b0637c742e26da055de6625b2861620f3f12f929aa6db0aeefc80169500f8098`.
+
+[Geslaagde imagepublicatie](https://github.com/lvos04/tuinwerk-os/actions/runs/43080459746) · [Geslaagde tests inclusief containerherstart](https://github.com/lvos04/tuinwerk-os/actions/runs/43080466192).
+
+Dit is een releasecandidate voor acceptatietests: echte TrueNAS- en medewerkersapparaten moeten nog worden gevalideerd. De image is voor x86-64/amd64. Toekomstige versies worden via **Build Custom App image** naar dezelfde repository gepubliceerd; kies alleen een werkelijk geslaagde versie.
 
 ## 2. Eén dataset
 
@@ -18,7 +22,7 @@ Ga naar **Apps → Discover Apps → Custom App** (benaming kan per SCALE-versie
 |---|---|
 | Application name | `tuinwerk` |
 | Image repository | `ghcr.io/lvos04/tuinwerk-os` |
-| Image tag | De werkelijk gepubliceerde versie of `sha-...` |
+| Image tag | `0.1.0-rc.1` |
 | Pull policy | If Not Present voor immutable tags |
 | Entrypoint/command | Leeg laten |
 | Container port | `8080`, TCP |
