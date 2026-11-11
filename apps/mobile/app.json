@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "TuinWerk OS",
+    "slug": "tuinwerk-os",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "tuinwerk",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "nl.tuinwerk.os",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Ontgrendel je TuinWerk-werkgegevens veilig."
+      }
+    },
+    "android": {
+      "package": "nl.tuinwerk.os",
+      "permissions": ["CAMERA"]
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan machine-, locatie- en onderdeellabels.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Voeg een foto aan een werkopdracht toe.",
+          "cameraPermission": "Fotografeer een storing of reparatie.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Ontgrendel TuinWerk met Face ID."
+        }
+      ],
+      "expo-notifications"
+    ]
+  }
+}

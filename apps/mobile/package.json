@@ -1,0 +1,37 @@
+{
+  "name": "@tuinwerk/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "expo": "~54.0.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "expo-sqlite": "~16.0.0",
+    "expo-secure-store": "~15.0.0",
+    "expo-crypto": "~15.0.0",
+    "expo-image-picker": "~17.0.0",
+    "expo-camera": "~17.0.0",
+    "expo-file-system": "~19.0.0",
+    "expo-local-authentication": "~17.0.0",
+    "expo-status-bar": "~3.0.0",
+    "@react-native-community/netinfo": "11.4.1",
+    "react-native-svg": "15.12.1",
+    "react-native-view-shot": "4.0.3",
+    "expo-notifications": "~0.32.0",
+    "expo-sharing": "~14.0.0",
+    "expo-document-picker": "~14.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "typescript": "^5.9.2",
+    "tsx": "^4.20.0"
+  }
+}

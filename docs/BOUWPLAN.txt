@@ -1,0 +1,769 @@
+INTERNE PROJECTSPECIFICATIE
+TuinWerk OS
+Compleet functioneel en technisch bouwplan
+Onderhoud, reparaties, werkplanning en onderdelenvoorraad voor de glastuinbouw
+
+Documentstatus  |  Definitieve functionele scope
+Alle door de gebruiker gekozen uitgangspunten en alle eerder voorgestelde verbeteringen zijn opgenomen. Directe kernfuncties, aanvullende functies en optionele AI zijn afzonderlijk gefaseerd; geen advies is buiten de scope gelaten.
+
+
+PROJECTGEGEVEN
+GEKOZEN UITGANGSPUNT
+Team
+1–5 medewerkers
+Hosting
+TrueNAS SCALE op eigen hardware
+Clients
+Echte iOS-app, echte Android-app en webapp
+Toegang
+Iedere medewerker mag taken aanmaken en toewijzen
+Planning
+Persoonlijke planning én gezamenlijke planning
+Locaties
+Volledig vrij configureerbare locatiestructuur
+Voorraad
+Onderdelenvoorraad; géén inkoop-/bestelmodule
+Verbinding
+Offline mobiel invoeren en veilig synchroniseren
+Overdracht
+Bouwplan geschikt als uitvoeringsspecificatie voor Claude Code
+
+
+Versie 1.0  •  11 november 2026  •  Taal: Nederlands
+
+Documentwijzer
+Dit document is een uitvoerbare functionele en technische specificatie. Het beschrijft wat gebouwd wordt, welke regels de applicatie moet afdwingen, hoe de onderdelen samenwerken en welke testen nodig zijn voordat de app in gebruik kan worden genomen.
+DEEL
+INHOUD
+A. Functioneel
+Doelen, rollen, taken, planning, machines, locaties, voorraad, mobiel, web en rapportages
+B. Technisch
+Architectuur, datamodel, API, offline synchronisatie, beveiliging, installatie en back-ups
+C. Uitvoering
+Bouwfasen, acceptatiecriteria, kwaliteitsregels, risico’s en opleverpakket
+Bijlagen
+Voorbeeldprocessen, veldspecificaties, automatiseringen en ontwikkelopdracht
+
+Leesafspraken
+•  MOET = verplicht in de afgesproken eindversie; niet uitstelbaar zonder expliciete scopewijziging.
+•  V1 = de eerste praktisch inzetbare versie; V1.1/V1.2 = vervolgfasen binnen de volledige scope.
+•  Optioneel = technisch beschikbaar maar alleen actief na inschakelen; dit geldt specifiek voor externe AI en bepaalde notificaties.
+•  Voorbeelden dienen ter verduidelijking; voorbeeldnamen, aantallen en tijden zijn niet automatisch werkelijke bedrijfsgegevens.
+•  Aanbevolen technologie is richtinggevend; een afwijking vereist schriftelijke onderbouwing en tests op dezelfde eisen.
+Belangrijk
+De definitieve gewenste eindversie bevat ook spraakinvoer, tijdregistratie, storingsstatistieken, exports, seizoensplanning en slimme taakvoorstellen. Deze worden niet geschrapt; ze kunnen wel later dan de kernmodules worden opgeleverd.
+
+1. Doel en afbakening
+1.1 Productvisie
+TuinWerk OS vervangt de huidige algemene takenlijst door één samenhangende werkomgeving voor reparaties, terugkerend onderhoud, medewerkersplanning, installaties en reserveonderdelen. Het systeem is afgestemd op werkzaamheden in een kas, technische ruimte, schuur en magazijn. De oplossing blijft beheersbaar voor een klein team van één tot vijf personen.
+1.2 Meetbare doelen
+•  Een defect kan vanaf een telefoon worden gemeld met foto en locatie, zonder uitgebreide formulieren.
+•  Iedere medewerker kan zijn eigen taken vinden en inplannen; iedereen kan ook de algemene takenlijst zien.
+•  Terugkerende werkzaamheden verschijnen automatisch zonder dubbelingen of verdwijnende achterstanden.
+•  Een machine laat de volledige reparatie- en onderhoudshistorie zien, inclusief gebruikte onderdelen.
+•  Actuele voorraad en opslaglocaties zijn direct op te zoeken of via QR-code te scannen.
+•  De gegevens staan op TrueNAS en kunnen onafhankelijk van de applicatiecontainers worden geback-upt en hersteld.
+•  De mobiele apps blijven bruikbaar zonder verbinding en tonen duidelijk wat nog moet synchroniseren.
+1.3 Binnen en buiten scope
+BINNEN SCOPE
+BUITEN SCOPE
+Taken, storingen, werkplanning, jaarplanning, onderhoud en voorraad
+Volledige inkoop-/besteladministratie en leveranciersfacturen
+Mobiele iOS/Android-apps, webapp, QR, foto’s, offline synchronisatie
+Externe ERP-, loon- of boekhoudintegraties in de eerste versie
+Export en eenvoudige weekoverzichten
+Volledige HR- of urenverloningsmodule
+Optionele AI-ondersteuning bij melding en samenvatting
+AI als verplichte afhankelijkheid voor opslag, voorraad of planning
+
+2. Gebruikers en toegangsrechten
+2.1 Rollen
+Standaard zijn er twee rollen: medewerker en beheerder. De basis is open samenwerking: medewerkers mogen taken aanmaken, wijzigen, toewijzen en alle taken bekijken. Beheerders beheren daarnaast accounts, systeeminstellingen, herstel en definitieve gegevensverwijdering.
+RECHT
+MEDEWERKER
+BEHEERDER
+Alle taken, machines en voorraad bekijken
+Ja
+Ja
+Taken aanmaken, toewijzen, bewerken en afronden
+Ja
+Ja
+Eigen planning en persoonlijke werkblokken beheren
+Ja
+Ja
+Gedeelde planning voorstellen/wijzigen
+Ja, met meldingen aan betrokkenen
+Ja
+Locaties en machines toevoegen of aanpassen
+Ja
+Ja
+Voorraad boeken en tellen
+Ja
+Ja
+Gebruikers, rechten en systeeminstellingen
+Nee
+Ja
+Back-ups beheren en herstel starten
+Nee
+Ja
+Definitief verwijderen van data
+Nee
+Met extra bevestiging
+
+2.2 Rechtenregels
+•  Elke taak bewaart maker, eigenaar(s), laatste wijziging en tijdstip; alle gebruikers kunnen de algemeen zichtbare taken bekijken.
+•  Persoonlijke niet-gedeelde werkblokken zijn alleen zichtbaar voor de eigenaar en beheerders; er is een expliciete actie om ze te delen.
+•  Beide deelnemers worden gewaarschuwd als iemand een gedeelde planning wijzigt; elkaars agenda wordt niet ongemerkt overschreven.
+•  Authenticatie en autorisatie worden op de server gecontroleerd, niet alleen via verborgen knoppen in de interface.
+•  Verwijderen is standaard archiveren; definitieve verwijdering is een expliciete beheerderactie met auditregistratie.
+2.3 Persoonlijke overzichten
+•  Mijn taken
+•  Vandaag
+•  Deze week
+•  Alle taken
+•  Niet toegewezen
+•  Achterstallig
+•  Geblokkeerd
+•  Afgerond
+•  Mijn persoonlijke planning
+•  Gezamenlijke planning
+3. Taken, reparaties en meldingen
+3.1 Twee manieren van aanmaken
+Snelle melding: titel, foto (optioneel), locatie (optioneel of voorgesteld), urgentie; de app vult melder en datum automatisch in. Uitgebreide taak: alle velden inclusief planning, machine, checklist, onderdelen en betrokken medewerkers. Een snelle melding kan later tot een volledige reparatietaak worden uitgebreid.
+3.2 Taakgegevens
+VELD
+SPECIFICATIE
+Identiteit
+Unieke taak-ID, aanmaakdatum, maker, laatst bewerkt op/door
+Inhoud
+Titel (verplicht), rijke beschrijving, categorie, tags, eventueel sjabloon
+Locatie
+Vrije locatiekeuze, optioneel specifiek machine-/installatieobject
+Prioriteit
+Laag, normaal, hoog, kritiek; aanpasbare standaard
+Planning
+Beschikbaar vanaf, geplande datum/tijd, deadline, geschatte tijdsduur
+Toewijzing
+Eén of meer medewerkers, eventueel niet toegewezen
+Uitvoering
+Status, checklist, opmerkingen, blokkadereden, werkelijke tijd
+Media
+Foto’s voor/na, documenten, annotaties, metadata
+Voorraad
+Gekoppelde onderdelen en werkelijk gebruikte aantallen
+Herhaling
+Optioneel verwijzing naar onderhoudssjabloon en geplande beurt
+
+3.3 Statusmachine
+Voorgestelde statussen: Open → Gepland → Bezig → Afgerond. Vanuit Open, Gepland of Bezig mag de taak op Geblokkeerd worden gezet, met een reden, en later teruggezet worden naar een uitvoerbare status. Daarnaast zijn Annuleren, Heropenen en Archiveren beschikbaar.
+•  Elke statuswisseling schrijft een gebeurtenis naar het auditlog en de taakgeschiedenis.
+•  Een afgeronde taak wordt niet stilzwijgend opnieuw opengezet; daarvoor bestaat Heropenen met reden.
+•  Bij geblokkeerde werkzaamheden kan een voorraadartikel of externe reden worden gekoppeld.
+•  Kritieke taken krijgen een duidelijke herkenbare visuele prioriteit, maar niet uitsluitend via kleur.
+3.4 Foto’s, bijlagen en opmerkingen
+•  Fotograferen vanuit de app en bestaande foto’s selecteren; meervoudige upload en inzoomen.
+•  Foto’s kunnen met pijlen, cirkels en tekst worden geannoteerd; originele afbeelding blijft herstelbaar.
+•  Onderscheid tussen situatie vóór reparatie, tijdens werkzaamheden en eindresultaat.
+•  WebP/JPEG-compressie en instelbare maximale bestandsgrootte; originele upload optioneel bewaren.
+•  PDF-documenten en handleidingen koppelen aan taak of machine; veilige bestandsvalidatie en maximale limieten.
+•  Reacties met auteur en tijdstip, inclusief meldingen bij nieuwe opmerkingen.
+•  Geen betaalde app-tier die het aantal foto’s kunstmatig begrenst; alleen eigen opslagcapaciteit en veiligheidslimieten.
+3.5 Sjablonen, checklists en afhankelijkheden
+Taaksjablonen versnellen herhaald werk: standaardtitel, checklist, categorie, geschatte tijd, machinecategorie en onderdelen. Checklists zijn afvinkbaar met tijdstip en medewerker. Een taak kan afhangen van een andere taak; de interface toont de relatie en waarschuwt wanneer de voorgaande taak nog niet af is. Automatisch sluiten bij een incomplete verplichte checklist is niet toegestaan tenzij expliciet ingesteld.
+3.6 Zoeken en filteren
+Vrij zoeken op titel, omschrijving, artikelnummer, machine, locatie en opmerkingen (rekening houdend met rechten). Filters: status, prioriteit, medewerker, categorie, datum, deadline, machine, locatie en tags. Opgeslagen filters en sorteringen worden per medewerker onthouden.
+4. Planning en automatische herhaling
+4.1 Drie planningsniveaus
+NIVEAU
+GEDRAG
+Mijn planning
+Medewerker plant eigen toegewezen taken en privéwerkblokken; week/dag/agenda.
+Teamplanning
+Alle gedeelde werkzaamheden per persoon, dag, status, locatie en overlap.
+Jaarplanning
+Toekomstige onderhoudsbeurten en seizoensgebonden werkzaamheden; maand- en tijdlijnoverzicht.
+
+4.2 Scheid planning en deadline
+Een taak kent zowel een uitvoeringsvenster als een deadline. Het verplaatsen van een persoonlijke tijdsblok wijzigt niet automatisch de vaste deadline of de planning van collega’s. Als meerdere personen samenwerken, toont de app de afstemming en waarschuwingen bij dubbele planning.
+4.3 Herhalingsregels
+•  Dagelijks; wekelijks op gekozen weekdagen; elke N weken; maandelijks; elke N maanden; halfjaarlijks; jaarlijks; elke N dagen; op expliciete kalenderdata.
+•  N-de weekdag van maand, bijvoorbeeld tweede maandag; instelbaar uitzonderings- en einddatum.
+•  Vaste kalenderfrequentie versus interval vanaf laatste daadwerkelijke uitvoering.
+•  Vooruitkijkvenster voor het aanmaken van toekomstige taken, bijvoorbeeld vier weken; wijzigbaar via beheer.
+•  Overgeslagen werkzaamheden blijven zichtbaar als achterstallig; niet stilzwijgend wegpoetsen.
+•  Er mag per herhalingsregel en termijn maximaal één werkopdracht ontstaan, ook bij serverherstart.
+•  Wijziging van het sjabloon raakt standaard alleen toekomstige, niet-uitgevoerde opdrachten; geschiedenis blijft onveranderd.
+•  Onderhoud moet robuust zijn voor maandultimo, 29 februari, zomer-/wintertijd en hervatten na offline periode.
+4.4 Seizoens- en teeltwisselingsplanning
+Maak een seizoenssjabloon met een verzameling activiteiten en relatieve plandata rond een gekozen gebeurtenis, bijvoorbeeld einde teelt, schoonmaak, inspecties, voorbereidingen en opstart. De gebruiker kan het sjabloon per seizoen activeren, verschuiven en toewijzen. De taken worden normaal in de jaarplanner en op medewerkersagenda’s zichtbaar.
+4.5 Kalenderweergaven en waarschuwingen
+•  Dag, week, maand en jaar; lijst, bord, kalender en compacte team-tijdlijn.
+•  Sleepbewerkingen op de webapp met bevestiging als een wijziging anderen raakt.
+•  Meldingen vóór geplande taken, op deadline en bij achterstand; instelbare stilletijden.
+•  Terugkerende klus staat als sjabloon én als afzonderlijke uitvoeringsbeurten in de data.
+5. Vrije locatiestructuur en assets
+5.1 Dynamische locaties
+Locaties vormen een boom met willekeurige diepte en namen: bedrijf > kas > afdeling > kap > bed is slechts één voorbeeld. Andere takken, zoals schuur > magazijn > stelling > bak of technische ruimte > pomphok, zijn even geldig. Elk object heeft een onveranderlijke ID, naam, type (vrij te configureren) en optionele metadata.
+•  Locaties toevoegen, aanpassen, onderbrengen in andere locatie en deactiveren.
+•  Bij hernoemen of verplaatsen blijven oude taak- en voorraadverwijzingen op de juiste object-ID gericht.
+•  Een gedeactiveerde locatie blijft voor historische rapportages bestaan, maar verdwijnt uit standaardkeuzelijsten.
+•  QR-code per locatie, scanbaar op iPhone en Android.
+•  Locatiepad visueel tonen, bijvoorbeeld Kas 2 / Afdeling B / Kap 14.
+5.2 Machine- en installatiebeheer
+GEGEVEN
+FUNCTIE
+Machine-identiteit
+Naam, asset-ID, fabrikant, model, serienummer, status, foto
+Technische details
+Installatiedatum, garantie/keuringsgegevens, handleidingen en notities
+Plaatsing
+Actuele locatie en verplaatsingsgeschiedenis
+Structuur
+Bovenliggende machine en subcomponenten
+Onderhoud
+Frequenties, checklists, geplande en uitgevoerde beurten
+Storingen
+Open, lopende en afgeronde defecttaken plus heropening
+Onderdelen
+Passende artikelen, aantallen en verbruikshistorie
+QR
+Scan opent machinekaart, melding en historie
+
+5.3 QR-codes
+Unieke QR-codes op machine, ruimte, voorraadbak of onderdeel openen via een gescande URI direct het juiste object. Bied afdrukbare label-PDF’s met scanbare code en korte menselijke identificatie. De URL bevat een willekeurige, niet-gevoelige identificatie; toegang verloopt altijd via autorisatie op de server.
+6. Voorraadbeheer zonder inkoopmodule
+6.1 Onderdelenstamgegevens
+Voorraadartikelen bevatten artikelnummer, naam, categorie, foto, eenheid (stuk, meter, doos, liter enz.), omschrijving, optioneel prijsindicatie, minimumvoorraad, leverancier als tekstuele referentie, leveranciersartikelnummer, compatibele machines en één of meer opslaglocaties. Het is nadrukkelijk geen leveranciersorder- of factuuradministratie.
+6.2 Meerdere opslaglocaties
+Eén artikel kan op meerdere plekken liggen. Voorraad wordt per combinatie van artikel en opslaglocatie beheerd. Een verplaatsing maakt gekoppelde af- en bijboekingen als één atomaire operatie. De totale voorraad is de som van de locatiesaldi.
+6.3 Vier mutatietypen
+TYPE
+REGELS
+Ontvangst / aanvulling
+Aantal verhogen; herkomst als vrije notitie. Geen verplicht bestelnummer.
+Verbruik
+Aantal verlagen en optioneel linken aan reparatie of onderhoudsbeurt.
+Verplaatsing
+Zelfde aantal van A naar B; beide boekingen altijd samen slagen of falen.
+Correctie
+Telfout met reden en bevoegd persoon; auditspoor verplicht.
+
+6.4 Minimumvoorraad en aanvullijst
+Per artikel is een minimumvoorraad in te stellen, optioneel per opslaglocatie. Wanneer het saldo onder de grens komt, verschijnt een waarschuwing en het artikel op de aanvullijst. De aanvullijst kan handmatig worden afgevinkt of geëxporteerd, maar maakt geen orders aan.
+6.5 Inventarisaties
+•  Maak een telling voor een magazijn, stelling of de hele voorraad.
+•  Scan artikelen of zoek op naam/artikelnummer; vul werkelijk aantal in.
+•  Toon geregistreerde voorraad, getelde voorraad en verschil vóór bevestiging.
+•  Schrijf na bevestiging correctiemutaties met telronde-ID, medewerker, tijdstip en reden.
+•  Voorkom dubbele verwerking van dezelfde telronde en toon mutaties die tijdens een telling zijn ontstaan.
+6.6 Veilig voorraadgebruik bij offline werken
+Offline voorraadverbruik is een lokale conceptmutatie, nooit een definitieve saldowijziging op TrueNAS. De server verwerkt de reservering/afboeking idempotent binnen een database-transactie, controleert beschikbaarheid en kan een conflict teruggeven. De mobiele app laat de gebruiker dan een ander aantal of andere opslaglocatie kiezen. Standaard is negatieve voorraad niet toegestaan.
+6.7 Rapportages voorraad
+•  Voorraadoverzicht per categorie/locatie, lage voorraad, artikelen zonder voorraad, mutatiegeschiedenis, getelde verschillen en optionele voorraadwaarde op basis van ingevulde prijsindicaties.
+•  Export naar CSV en Excel; optioneel afdrukbare PDF-overzichten en QR-labels.
+7. Mobiele applicaties: iOS en Android
+7.1 Echte native distributie
+De mobiele client wordt gebouwd met React Native en Expo (ontwikkeltooling), en levert zelfstandige iOS- en Android-apps op. Geen PWA als vervanging van de gekozen native apps. De apps gebruiken één gedeelde API en een gedeelde functionele basis, met platformgerichte aanpassingen voor meldingen, bestanden en installatie.
+7.2 Navigatiestructuur
+TAB / SCHERM
+FUNCTIES
+Home
+Mijn werk vandaag, urgent, herinneringen en synchronisatiestatus
+Taken
+Mijn / Alle / Niet toegewezen / Geblokkeerd; filters en zoeken
+Planning
+Dag en week, mijn tijdsblokken en teamafspraken
+Voorraad
+Zoeken, scannen, aantallen en mutaties
+Meer
+Machines, locaties, jaarplanning, exports, profiel en instellingen
+
+7.3 Bedienbaarheid in de kas
+•  Grote knoppen, goed contrast, bruikbaar met één hand; kritieke acties met bevestiging.
+•  Nieuwe storingsmelding met zo min mogelijk tikken: foto > titel > locatie > opslaan.
+•  Camera-, fotobibliotheek- en QR-scannerfuncties op beide platformen.
+•  Lokale cache voor recent gebruikte machines, locaties en onderdelen.
+•  Ondersteuning voor spraak-naar-tekst via platformdiensten waar beschikbaar; tekst kan voor opslaan worden gecorrigeerd.
+•  Duidelijke indicator voor offline modus, wachtende uploads en conflicten.
+•  Schermvergrendeling via telefoonbiometrie als extra gemak; serverauthenticatie blijft leidend.
+7.4 Installatie en distributie
+Android: ondertekende APK/AAB en interne installatiehandleiding, met optie voor Google Play. iPhone: geldig Apple Developer-account en een ondersteunde Apple-distributieroute, bijvoorbeeld TestFlight tijdens de testfase en geschikte definitieve bedrijfsdistributie. iOS ondersteunt niet dezelfde vrije APK-achtige installatie als Android. Voor iOS moet de feitelijke uitrolmethode vóór productie worden gekozen en met echte medewerkersapparaten getest.
+8. Offline werken en synchronisatie
+8.1 Offline dataklassen
+GEGEVEN
+OFFLINE BELEID
+Taken en checklists
+Recent en toegewezen taken volledig cachebaar en wijzigbaar
+Foto’s en bijlagen
+Uploadwachtrij op het toestel; retry en zichtbare voortgang
+Locaties, machines en artikellijst
+Geselecteerde catalogus lokaal beschikbaar
+Planning
+Eigen agenda lokaal; gedeelde mutaties op server gevalideerd
+Voorraadmutaties
+Lokale concepten, niet direct definitief
+Beheer/gebruikers
+Online verbinding vereist voor gevoelige configuratie
+
+8.2 Synchronisatieprotocol
+•  Lokale SQLite-opslag, duurzaam bewaarde wachtrij met unieke operatie-ID per mutatie.
+•  API ondersteunt idempotente verwerking om dubbele uploads bij retries te voorkomen.
+•  Elke bewerkbare record heeft versie/updated_at voor conflictcontrole.
+•  Voor niet-kritieke velden kan een duidelijke conflictkeuze worden getoond; voor status, toewijzing en voorraad nooit stilzwijgend data overschrijven.
+•  Foto’s krijgen uploadstatus, bestandshash en herstelbare retries.
+•  Synchroniseren bij netwerkterugkeer of openen van de app; achtergrondsynchronisatie is een best-effort mogelijkheid, geen garantie op iOS/Android.
+•  Bij langdurig offline werken blijven concepten zichtbaar; de gebruiker ziet wat wel en niet serverbevestigd is.
+8.3 Conflictvoorbeelden
+SITUATIE
+GEWENST GEDRAG
+Twee medewerkers wijzigen dezelfde taak
+Server detecteert versieverschil; toont gewijzigde velden en vraagt keuze.
+Twee medewerkers boeken de laatste pakking
+Server verwerkt maximaal beschikbare voorraad; andere boeking krijgt conflict.
+Offline foto terwijl taak op server is gearchiveerd
+Foto blijft lokaal, synchronisatie meldt mismatch en geeft hersteloptie.
+Dubbele retry van dezelfde mutatie
+Server herkent operatie-ID en boekt niet opnieuw.
+
+9. Webapp en dashboard
+De webapp gebruikt dezelfde backend als de mobiele apps, maar krijgt grotere tabellen, uitgebreide filters en planning op breed scherm. Responsive op tablet en desktop.
+PAGINA
+INHOUD
+Dashboard
+Mijn open werk, teamoverzicht, urgent, achterstallig, komende onderhoudsbeurten, lage voorraad
+Taken
+Tabel, Kanbanbord, zoeken, bulkbewerking met bevestiging, taakdetail
+Mijn planning
+Dag, week en maand; tijdsblokken en persoonlijke taken
+Teamplanning
+Agenda per medewerker, overlap en gedeelde afspraken
+Jaarplanning
+Onderhoudsmatrix per maand, filters op machine, locatie en categorie
+Machines & locaties
+Boomstructuur, detailkaarten, historie en QR-labels
+Voorraad
+Catalogus, magazijnindeling, tellingen, aanvullijst en mutaties
+Rapportages
+Werkzaamheden, werktijd, achterstanden, storingen, PDF en Excel
+Beheer
+Gebruikers, rolrechten, categorieën, notificaties, import, data-export en back-ups
+
+9.1 Universele zoekfunctie
+Een algemene zoekbalk doorzoekt taken, machines, locaties, artikelen en relevante opmerkingen. Resultaten tonen objecttype, locatiepad en directe acties zoals “nieuwe taak bij deze machine”. Zoekindexen kunnen uit PostgreSQL komen; voor dit team is een zware losse zoekcluster niet nodig.
+9.2 Aanpasbaar dashboard
+Iedere medewerker kan prioritaire tegels kiezen; beheerders kunnen een algemeen bedrijfsdashboard instellen. Toon alleen meetwaarden die betrouwbaar uit de database te berekenen zijn, met filters voor periode en medewerker.
+10. Meldingen, automatisering en weekoverzichten
+10.1 Gebeurtenissen
+TRIGGER
+ACTIE
+Taak toegewezen of gewijzigd
+Push naar betrokken medewerker(s), in-app melding
+Taak morgen/vandaag gepland
+Instelbare herinnering
+Deadline overschreden
+Achterstallig-markering + melding
+Nieuwe opmerking of tag
+Melding aan betrokkenen
+Taak afgerond/heropend
+Melding aan melder en betrokkenen
+Onderhoudsbeurt binnenkort nodig
+Geplande herinnering
+Artikel onder minimumvoorraad
+Waarschuwing + aanvullijst
+Maandag weekstart
+Samenvatting gepland werk, urgent, achterstallig
+
+10.2 Instelbaarheid
+•  Individueel instellen welke gebeurtenissen push-, e-mail- of alleen in-appmeldingen geven.
+•  Stille uren, met aparte uitzonderingskeuze voor kritieke meldingen.
+•  Bundeling van veelvuldige wijzigingen om meldingsspam te voorkomen.
+•  Weekoverzicht optioneel via e-mail; als geen e-mailtransport is ingesteld blijft de samenvatting in de app.
+•  Server-side scheduler bewaart uitgevoerde job-ID’s zodat tijdgebonden acties niet dubbel worden verzonden.
+11. Tijdregistratie, statistieken en rapportages
+11.1 Werkelijke werktijd
+Een taak kan automatisch met start/pauze/stop-timer worden bijgehouden of handmatig een tijdsduur krijgen. Uren zijn per medewerker optioneel; ze zijn bedoeld voor onderhoudsinzicht, niet automatisch voor salarisadministratie. Registraties hebben start/eind, medewerker, taak en correctiehistorie.
+11.2 Storingsstatistieken
+•  Aantal storingen per machine, locatie, categorie en periode.
+•  Gemiddelde doorlooptijd van open tot opgelost en tijd dat een taak geblokkeerd was.
+•  Terugkerende defecten en machines met relatief veel onderhoudsactiviteiten.
+•  Verbruikte onderdelen per machine en categorie.
+•  Openstaande werkzaamheden, achterstallig onderhoud en werkdruk per week.
+•  Toon altijd de gebruikte definitie van indicatoren en voorkom conclusies uit zeer kleine aantallen.
+11.3 Export
+Rapportages kunnen op periode, machine, locatie of medewerker worden gefilterd en als PDF of Excel worden geëxporteerd. CSV blijft beschikbaar voor eenvoudige gegevensuitwisseling. De exports bevatten datum en gebruikte filters. Bij grotere bestanden gebeurt genereren via een achtergrondtaak met zichtbare voortgang.
+11.4 Optionele AI-module
+AI is niet nodig voor de kern. Een instelbare module kan spraak- of tekstmeldingen structureren, voorgestelde checklists genereren en onderhoudshistorie samenvatten. Gebruik een configureerbare API-provider (bijvoorbeeld OpenAI of Anthropic) met expliciete aan-/uitknop en kostenlimiet. De gebruiker keurt elk AI-voorstel goed voordat het een taak of andere registratie wijzigt.
+•  AI mag geen voorraadmutaties, taaktoewijzingen of onderhoudsbeurten zelfstandig definitief boeken.
+•  Geef vóór verzending aan een externe provider duidelijk aan welke tekst of foto wordt gedeeld.
+•  Gevoelige data minimaliseren, provideropties instelbaar en alle AI-acties loggen.
+•  Geen AI-afhankelijkheid bij offline werken of bij een uitgevallen API.
+12. Import uit Todoist en gegevensoverdracht
+Bouw een importwizard die officiële exportformaten of een ondersteunde API gebruikt. Welke metadata beschikbaar zijn hangt af van de gekozen exportbron en eventuele toegangsrechten.
+12.1 Importstappen
+1. Selecteer exportbestand of veilige API-koppeling; maak eerst een testimport met voorbeeldweergave.
+2. Lees taken en beschikbare velden; herken project, titel, omschrijving, prioriteit, deadline, subtaak en eventueel medewerker.
+3. Laat de gebruiker Todoist-projecten mappen op TuinWerk-categorieën of locaties.
+4. Toon onbekende waarden en mogelijke duplicaten vóór import; import mag opnieuw uitvoerbaar zijn zonder doublures.
+5. Bewaar herkomst-ID per taak en genereer een controleverslag met geïmporteerde, overgeslagen en ongeldige regels.
+6. Maak na akkoord de data beschikbaar in de app en bewaar het originele exportbestand veilig als referentie.
+12.2 Overige import en export
+Voor onderdelen en locaties is een eenvoudige Excel-/CSV-import met kolommapping nuttig. Controleer artikelnummerduplicaten, eenheden en locatiepaden. Daarnaast moet een complete data-export bestaan voor migratie naar andere software of een nieuwe server.
+13. Technische architectuur
+13.1 Voorgestelde stack
+LAAG
+TECHNOLOGIE
+WAAROM
+Mobiel
+React Native + Expo + SQLite
+Gedeelde codebasis, echte iOS/Android-builds, offline opslag
+Web
+React + Next.js
+Volwaardige responsive beheer- en planningsinterface
+API
+NestJS + TypeScript
+Modulaire services, duidelijke contracten en validatie
+Database
+PostgreSQL
+Transacties, sterke relaties en betrouwbare voorraadboekingen
+Bestanden
+TrueNAS-dataset op ZFS
+Eigen opslag, snapshots en exporteerbaarheid
+Background jobs
+Databasegestuurde worker
+Herhalingen, reminders, imports, exports, zonder extra cluster
+Reverse proxy
+Caddy of bestaande beveiligde proxy
+HTTPS en gecontroleerde toegang
+Installatie
+Docker Compose onder TrueNAS SCALE
+Herhaalbare lokale deployment en updates
+
+13.2 Dienstindeling
+•  Web frontend: statische of server-gerenderde frontend voor desktop/tablet.
+•  API: toegang, taaklogica, planning, onderhoud, voorraad en autorisatie.
+•  Worker: geplande taken, herhalingen, e-mail, exports en opruimwerk.
+•  Database: PostgreSQL in een persistent datasetvolume.
+•  Bestanden: afzonderlijk persistent volume met foto’s, bijlagen en gegenereerde rapporten.
+•  Reverse proxy: HTTPS, veilige headers en routing; waar mogelijk aansluiten op bestaande infrastructuur.
+13.3 API-contracten (indicatief)
+GROEP
+VOORBEELDEINDPUNTEN
+Accounts
+POST /auth/login; POST /auth/refresh; GET /users/me; GET /users
+Taken
+GET /tasks; POST /tasks; PATCH /tasks/{id}; POST /tasks/{id}/comments; POST /tasks/{id}/complete
+Planning
+GET /calendar; POST /schedules; GET /recurrences; POST /recurrences
+Machines
+GET /assets; POST /assets; GET /assets/{id}/history
+Locaties
+GET /locations/tree; POST /locations; PATCH /locations/{id}
+Voorraad
+GET /inventory/items; POST /inventory/movements; POST /inventory/counts
+Bijlagen
+POST /uploads/init; PUT/POST /uploads/chunks; GET /attachments/{id}
+Sync
+GET /sync/changes?cursor=...; POST /sync/operations
+Rapportages
+POST /exports; GET /exports/{id}/status
+
+Definitieve API-contracten worden als OpenAPI-specificatie gegenereerd. Alle mutaties moeten aan invoervalidatie, autorisatie, idempotentie en auditvoorwaarden voldoen.
+14. Datamodel en datakwaliteit
+ENTITEIT
+BASISFUNCTIE
+users, roles, sessions
+Gebruikers, rollen en aanmeldsessies
+locations
+Hiërarchische locaties met parent_id en stabiele ID’s
+assets, asset_relations
+Machines, subcomponenten en locatieverwijzingen
+tasks, task_assignments
+Taken en één-op-meer toewijzingen
+task_comments, task_checklist_items
+Samenwerking en checklists
+attachments, attachment_links
+Media en documentkoppelingen
+task_schedules
+Geplande tijden en persoonlijke werkblokken
+recurrence_rules, recurrence_occurrences
+Sjablonen en concrete onderhoudsbeurten
+maintenance_history
+Uitgevoerde onderhoudsregistraties
+inventory_items, inventory_locations
+Artikelen en fysieke opslagplaatsen
+inventory_balances, inventory_movements
+Saldomodel met onveranderlijke mutaties
+inventory_counts, inventory_count_lines
+Tellingen en correcties
+task_parts
+Artikelverbruik aan taak gekoppeld
+time_entries
+Werkelijke tijd per taak en medewerker
+notifications, notification_preferences
+Gebeurtenissen en persoonlijke voorkeuren
+audit_events, sync_operations
+Wijzigingshistorie en offline operatieverwerking
+imports, exports, job_runs
+Transparante verwerking en herstartbare achtergrondtaken
+
+14.1 Integriteitsregels
+•  Alle mutatiegevoelige entiteiten gebruiken UUID’s of gelijkwaardige unieke identificaties.
+•  Voorraadmutaties worden in één transactie samen met het saldo bijgewerkt; saldo mag niet stilzwijgend worden gewijzigd.
+•  De combinatie recurrence_rule + geplande termijn heeft een unieke index.
+•  Offline mutaties hebben per apparaat/gebruiker een unieke operatie-ID, met bewaartermijn voor herhalingsbeveiliging.
+•  Verwijzingen naar locaties, machines en gebruikers blijven historisch geldig via archivering in plaats van fysieke verwijdering.
+•  Database-migraties worden versioned, uitvoerbaar getest en terugrolbaar of herstelbaar gemaakt.
+15. Installatie op TrueNAS SCALE
+15.1 Oplevervorm
+Een GitHub-repository bevat de broncode, Dockerfiles, Compose-configuratie, omgevingsvariabelenvoorbeeld, migraties en installatiedocumentatie. De applicatie draait via de aangepaste applicatie-/Compose-functies van de gebruikte TrueNAS SCALE-versie, zonder dat containers direct in het hostbestandssysteem hoeven te worden aangepast.
+15.2 Persistente datasets
+DATASET (VOORBEELD)
+INHOUD
+apps/tuinwerk/postgres
+Databasestorage
+apps/tuinwerk/uploads
+Foto’s, PDF’s en overige bijlagen
+apps/tuinwerk/exports
+Gegenereerde rapporten en tijdelijke exports
+apps/tuinwerk/backup
+Versleutelde databaseback-ups
+apps/tuinwerk/config
+Niet-geheime configuratie; secrets apart beheren
+
+15.3 Installatiestappen
+1. Controleer TrueNAS SCALE-versie, beschikbare opslag, hostname, DNS en bereikbaarheid.
+2. Maak datasets met juiste eigenaarschap en minimale bestandsrechten.
+3. Plaats configuratie en secrets buiten Git; stel databasewachtwoord, APP_URL, sessiesleutels en mail-/pushconfiguratie in.
+4. Start containers met health checks en afhankelijkheidscontrole.
+5. Voer migraties uit, maak het eerste beheerdersaccount aan en activeer HTTPS.
+6. Controleer login, een testtaak, foto-upload, voorraadmutatie, periodieke taak, back-up en herstel.
+7. Maak mobiele apps aan de juiste backend-URL verbonden en configureer pushregistratie.
+8. Documenteer updates, rollback, logbestanden, herstel en noodprocedure.
+15.4 Externe toegang
+Standaardvoorkeur: beveiligde VPN/tunnel voor toegang buiten de tuin. Een HTTPS-publicatie zonder VPN kan alleen na expliciete keuze, met reverse proxy, sterke authenticatie, rate limiting, actuele beveiligingspatches en zonder publieke toegang tot TrueNAS-beheerinterface of PostgreSQL.
+15.5 Verhuizen naar andere server
+Gegevens, foto’s, secrets-instructies en configuratie zijn exporteerbaar. Een herstelprocedure moet zowel op een andere TrueNAS-host als op een algemene Linux/Docker-host worden getest. Gebruik geen harde hostpaden of IP-adressen in mobiele apps; backend-endpoint via configureerbare basis-URL.
+16. Beveiliging, privacy en back-ups
+16.1 Beveiligingseisen
+•  Versleutelde HTTPS-verbindingen voor web en API en veilige tokenverversing voor mobiele apps.
+•  Wachtwoorden met gangbare sterke hashfunctie; server-side rollen en toegangscontroles.
+•  Sessies intrekbaar, apparatenlijst zichtbaar en optionele tweede factor voor beheerders.
+•  Uploadvalidatie: bestandstype, maximale grootte, malwarebewuste verwerking en geen uitvoerbare uploads.
+•  Aanmeldingsbeperking, brute-forcebescherming, veilige secretopslag en gescheiden productie/testomgevingen.
+•  Auditlog van autorisatiegevoelige acties, voorraadcorrecties, heropenen en verwijderen.
+•  Minimale persoonsgegevens; bewaartermijnen en export-/verwijderprocedures instelbaar.
+•  Geen externe AI-dataoverdracht tenzij de module actief is en de gebruiker een actie bevestigt.
+16.2 Back-upbeleid
+Dagelijkse geautomatiseerde PostgreSQL-back-up en ZFS-snapshots van de bestandsdatasets. Maak daarnaast periodiek een externe kopie van database, uploads en benodigde configuratie. Ondersteun OneDrive als optionele externe bestemming via een passend back-up/synchronisatiemiddel, met versleuteling van back-uparchieven en toets op herstelbaarheid.
+Back-upprincipe
+Een ZFS-snapshot alleen op dezelfde NAS beschermt niet tegen totale serveruitval, diefstal of grote hardwaredefecten. De externe kopie is een afzonderlijke herstelbron. Synchronisatie is niet automatisch hetzelfde als versievaste back-up.
+
+16.3 Hersteldoelen als ontwerpuitgangspunt
+MAATSTAF
+VOORLOPIG DOEL
+Databaseback-upfrequentie
+Dagelijks; aanvullende snapshotfrequentie configureerbaar
+Herstelbaarheid
+Volledig herstel van een gecontroleerd testarchief
+Hersteltest
+Bij oplevering en daarna periodiek
+Back-upbewaring
+Configureerbaar, voorbeeld 30 dagelijkse en 12 maandelijkse herstelpunten
+Herstart na stroomuitval
+Services automatisch hervatten, zonder dubbele jobs of voorraadboekingen
+
+RPO/RTO zijn afhankelijk van ingestelde back-upfrequentie, opslaggrootte, internet en beschikbare hardware. De bouwer documenteert de daadwerkelijk geteste herstelduur en het mogelijke gegevensverlies.
+17. Betrouwbaarheid en niet-functionele eisen
+17.1 Prestaties
+•  Ontworpen voor maximaal vijf gelijktijdig actieve medewerkers, maar niet hard gecodeerd op vijf accounts.
+•  Gangbare takenlijsten en filters moeten bij normale datasets vlot blijven reageren; paginering en indexering zijn verplicht.
+•  Foto-upload werkt via wachtrijen, voortgang en retries; een mislukte upload mag de rest van de taak niet verliezen.
+•  Bij langdurig gebruik en vele jaren historiek blijven zoek- en kalenderfuncties schaalbaar door passende indexen en archivering.
+•  Het apparaat mag door offline wachtrijen niet onbeperkt opslagruimte verliezen; cleanup alleen na bevestigde serveropslag.
+17.2 Gebruiksvriendelijkheid en toegankelijkheid
+•  Nederlandstalige interface; vertaalbare tekststructuur voor latere andere talen.
+•  Status wordt met tekst en pictogram aangegeven, niet alleen met kleur.
+•  Formulieren hebben begrijpelijke foutmeldingen en bewaren ingevulde data bij fout.
+•  Schermlezerlabels, voldoende contrast en grote bedieningselementen.
+•  Toetsenbordbediening op de webapp en consistente navigatie op telefoon.
+17.3 Beschikbaarheid en monitoring
+Elke container heeft health checks, gestructureerde logs en instelbare logretentie. Een eenvoudige beheerstatus toont database, opslagruimte, back-upstatus, laatste geplande taakrun en synchronisatiefouten. Geen externe betaalde observabilitydienst nodig voor het eerste gebruik.
+18. Bouwfasen en opleverpoorten
+FASE
+UIT TE VOEREN
+ACCEPTATIEPOORT
+Fase 0 – analyse & ontwerp
+Werk bestaande Todoist-structuur, machinegroepen, locaties en werkprocessen uit als voorbeelddata; leg API, architectuur en testcriteria vast.
+Goedgekeurde datamodellen, schermnavigatie, technische keuzes en installatieontwerp.
+Fase 1 – fundament
+Monorepo, auth, rollen, database, migraties, opslag, API, Docker Compose, health checks, basiswebapp.
+Beheerder kan inloggen op een verse TrueNAS-installatie; back-upbasis aanwezig.
+Fase 2 – taken
+Snelle melding, uitgebreide taak, toewijzing, statussen, opmerkingen, foto’s, checklists, zoeken en archiveren.
+Vervanging van dagelijkse Todoist-werkstroom voor alle vijf gebruikers.
+Fase 3 – planning & onderhoud
+Agenda, persoonlijke werkblokken, teamplanner, jaarplanning, herhalingen, machinebeheer, seizoenssjablonen.
+Herhalingen zijn idempotent en onderhoudshistorie blijft correct.
+Fase 4 – voorraad
+Stamgegevens, meerdere opslagplaatsen, QR, afboekingen, telrondes, lage voorraad en taakverbruik.
+Voorraadboekingen zijn transactioneel en controleerbaar.
+Fase 5 – native mobiel
+Android/iOS-schermen, camera, annotatie, QR, SQLite-offline, synchronisatie, push.
+Echte Android- en iPhone-tests inclusief langdurige offline periode.
+Fase 6 – uitbreiding & rapportage
+Spraak-naar-tekst, tijdregistratie, statistieken, PDF/Excel, weekoverzicht, optionele AI.
+Alle extra adviezen beschikbaar met juiste toggles en rechten.
+Fase 7 – migratie & productie
+Todoist- en Excel/CSV-import, beveiligingscheck, restore-test, handleidingen, echte gebruikersacceptatie.
+Installatie reproduceerbaar, complete end-to-end tests groen en overdracht voltooid.
+
+18.1 Bouwregels
+•  Werk incrementeel en toets na iedere fase end-to-end; geen alleen visuele mockups als oplevering.
+•  Wijzigingen aan datamodel hebben migraties en regressietesten.
+•  Behoud werkende functies; grote refactors alleen indien aantoonbaar noodzakelijk.
+•  Extern gebruik van API’s en Apple/Google-sleutels uitsluitend via configureerbare secrets.
+•  Aan elke fase worden concrete demo-scenario’s en uitvoerbare testresultaten gekoppeld.
+19. Acceptatietesten en kwaliteitsborging
+TEST
+SLAGINGSCRITERIUM
+Toegangsrechten
+Medewerker kan eigen en alle taken zien en aan collega toewijzen; kan geen account beheren.
+Taak met foto
+Maak op telefoon een storing, voeg voor-/nafoto’s toe, bekijk op web; beelden blijven na serverherstart.
+Gelijktijdig samenwerken
+Vijf gebruikers kunnen tegelijk wijzigen; conflicten zijn zichtbaar en data raakt niet verloren.
+Persoonlijke planning
+Verplaats eigen tijdsblok; gedeelde taakdeadline en agenda collega blijven onveranderd.
+Herhalingen
+Jaarlijks onderhoud maakt exact één nieuwe taak voor juiste periode, ook na workerrestart.
+Seizoenssjabloon
+Activeer teeltwisseling; alle taakdata en relatieve termijnen kloppen.
+Locatieverplaatsing
+Hernoem/move een kap of magazijn zonder historische taaklinks te breken.
+Machinehistorie
+Afgeronde reparatie met gebruikte onderdelen verschijnt bij juiste machine.
+Voorraadconcurrentie
+Twee apparaten boeken laatste artikel; geen negatief saldo en heldere conflictafhandeling.
+Inventarisatie
+Een telling maakt gecontroleerde correcties; herhaald bevestigen telt niet dubbel.
+Offline 24 uur
+Maak en bewerk taken, foto’s en conceptverbruik; na herverbinden correcte synchronisatie.
+Push / meldingen
+Relevante melding bereikt betrokken apparaten en respecteert voorkeuren/stilletijden.
+Todoist-import
+Testimport, kolommapping, duplicaatdetectie, herimport en eindrapport werken.
+Exports
+PDF/Excel bevatten juiste filters, taak-/asset-/voorraadgegevens en geen ongeautoriseerde data.
+Spraak / AI
+Spraaktekst is corrigeerbaar; AI-module is uit te zetten, voorstellen wijzigen niets zelfstandig.
+Herstel
+Schone installatie + database- en fotorestauratie levert dezelfde gegevens op.
+Mobiele release
+Ondertekende Android-build installeert; iOS-build werkt op echte iPhone via legitieme distributie.
+Security
+API-autorisatie, uploadvalidatie, TLS, sessie-intrekking en secretcontrole getest.
+
+19.1 Vereiste testtypen
+•  Unit tests voor taak-, herhalings- en voorraadlogica.
+•  Database-/integratietests voor migraties, concurrentie en mutatiegeschiedenis.
+•  API-contracttests en autorisatietests.
+•  UI end-to-end flows voor web en belangrijkste mobiele schermen.
+•  Offline/online-chaostests en upload-faaltests.
+•  Restore-tests en upgrade-/rollbacktests op proefomgeving.
+20. Kosten en randvoorwaarden
+De backend en data draaien op bestaande eigen hardware; licentiekosten voor PostgreSQL, NestJS en React zijn niet nodig. Kosten ontstaan mogelijk voor een domein, externe back-upcapaciteit, cloud-diensten voor e-mail of AI, mobiele distributie en ontwikkel-/onderhoudstijd.
+POST
+AANPAK
+TrueNAS, backend en PostgreSQL
+Eigen hardware; geen verplichte maandlicentie
+Android
+Interne APK mogelijk; Play Store-distributie optioneel met toepasselijke voorwaarden
+iOS
+Apple Developer-account en passende distributie; actueel tarief controleren bij publicatie
+Push
+Apple/Google pushinfrastructuur; geen betaalde provider nodig als directe integratie werkt
+E-mail
+Optioneel eigen SMTP of transactionele e-maildienst
+Foto’s en back-ups
+Eigen NAS + optioneel versleutelde externe opslag
+AI
+Uitgeschakeld = geen AI-kosten; ingeschakeld = instelbare API- en budgetlimiet
+
+21. Risico’s, keuzes en mitigaties
+RISICO / KEUZE
+BEHEERSMAATREGEL
+iOS-distributie voor klein team
+Vooraf geschikte route kiezen; testen op echt apparaat; geen aanname dat losse IPA via WhatsApp installeerbaar is.
+Slechte wifi in kas
+Offline-first, lokale wachtrij, statusindicatie en herhaalbare uploads.
+Verkeerde voorraad door gelijktijdige afboekingen
+Database-transacties, idempotente operaties, geen automatische negatieve voorraad.
+Verlies van foto’s of serverdata
+Persistente datasets, externe versleutelde back-up en hersteltesten.
+Te veel functies voor klein team
+Eenvoudige standaard-UI; geavanceerde schermen achter aparte menu’s.
+Herhalingsfouten rond jaareinde
+Unieke termijnen, testgevallen voor kalenderlogica en workerrestarts.
+AI-hallucinaties of kosten
+Optionele module, menselijke bevestiging, kostenlimiet en volledige uitschakelbaarheid.
+Wijzigingen aan locaties of machines
+Stabiele ID’s, archivering en historie met onveranderlijke verwijzingen.
+Toegang van buitenaf
+VPN als veilige standaard, geen publieke DB of TrueNAS-beheerinterface.
+Vastzitten aan één server
+Herhaalbare Compose-installatie en geteste export/herstelprocedure.
+
+22. Opleverpakket voor ontwikkelaar
+Het project geldt niet als afgerond wanneer alleen de UI, een prototype of een Dockerfile bestaat. De volledige oplevering bevat:
+•  Eén beheerde GitHub-repository met complete broncode voor backend, web, iOS en Android.
+•  Gereproduceerde, beveiligde Docker Compose-installatie voor TrueNAS SCALE met duidelijke variabelen.
+•  Database-migraties, voorbeelddata, init-procedure en eerste-admin-setup.
+•  Werkende mobiele builds, distributiehandleidingen en testverslagen van echte apparaten.
+•  OpenAPI-documentatie en overzicht van alle backendmodules.
+•  Importtool voor Todoist en Excel/CSV en een migratierapport.
+•  PDF/Excel-export, QR-labels en configureerbare notificaties.
+•  Back-up-/restoreprocedures inclusief testresultaat op lege installatie.
+•  Gebruikershandleiding, beheerdershandleiding en handleiding voor nieuwe server.
+•  Automatische testset, CI-workflow, beveiligingscheck en bekende beperkingenlijst.
+•  Configuratie voor de optionele AI-provider, standaard uitgeschakeld.
+•  Releaseprocedure, versiebeheer en een veilige update-/rollbackroute.
+23. Voorbeeldwerkstromen
+23.1 Storing aan een pomp
+1. Medewerker scant machinecode van Pomp 2 of kiest de machine uit de lijst.
+2. Tikt “Nieuwe storing”, maakt foto, voert “lekkende koppeling” in en kent prioriteit toe.
+3. Taak is meteen zichtbaar voor iedereen en wordt toegewezen aan een medewerker.
+4. Medewerker zet taak op Bezig, voegt opmerking toe en kiest gebruikte pakking uit voorraad.
+5. Bij online bevestiging schrijft de server de voorraadmutatie en koppelt die aan de taak.
+6. Medewerker voegt eindfoto toe, vinkt checklist af en rondt taak af.
+7. Machinehistorie, statistieken, onderdelenverbruik en eventuele werktijd zijn bijgewerkt.
+23.2 Jaarlijkse verwarmingscontrole
+1. Beheerder/medewerker maakt onderhoudssjabloon met jaarlijkse septemberdatum, machine en checklist.
+2. Worker creëert tijdig de volgende uitvoeringsopdracht en toont deze in jaarplanner en teamoverzicht.
+3. Medewerker plant de taak in eigen agenda, controleert de installatie en registreert bevindingen.
+4. Bij afronden wordt een afzonderlijke uitvoeringsregistratie bewaard.
+5. Het sjabloon blijft actief en volgende jaaropdracht ontstaat automatisch zonder duplicaat.
+23.3 Voorraadtelling
+1. Medewerker start telling voor magazijn / stelling A.
+2. Scan onderdelen en voer fysieke aantallen in, ook zonder directe verbinding.
+3. Bij online indienen vergelijkt de server de telling met actuele voorraad en tussentijdse mutaties.
+4. Medewerker controleert de verschillen en bevestigt correcties.
+5. Voorraadjournal en inventarisatierapport tonen wat is gewijzigd en waarom.
+24. Uitvoeringsopdracht voor Claude Code
+Implementatie-instructie
+Ontwikkel TuinWerk OS als productierijpe TrueNAS SCALE-app met één backend, één webapp en echte native iOS- en Android-apps. Implementeer de volledige functionele scope van dit document gefaseerd, met testbare resultaten en zonder bestaande functionaliteit te verwijderen.
+
+Werkautonomie: analyseer het bestaande project/repository eerst indien aanwezig. Ontwerp en implementeer volgens de gekozen stack of documenteer gemotiveerde afwijkingen. Stel alleen vragen wanneer een externe account-, certificaat-, sleutel- of distributiekeuze noodzakelijk is; gebruik voor overige open technische details veilige defaults.
+•  Schrijf vóór implementatie een duidelijk fasenplan met afhankelijkheden en acceptatiecriteria.
+•  Maak per module data-entiteiten, validatie, API, webschermen, mobiele schermen en tests compleet.
+•  Bouw echte integraties waar credentials beschikbaar zijn; verzin geen werkende push-, e-mail- of store-integratie.
+•  Dwing voorraad- en herhalingsregels server-side af, inclusief offline idempotentie.
+•  Lever na iedere fase werkende software en laat automatisch uitgevoerde tests zien.
+•  Draai de complete stack op een reproduceerbare testinstallatie en voer herstelproef uit.
+•  Voor iOS: documenteer en voer alleen ondertekende builds/distributie uit als developer-toegang beschikbaar is.
+•  Lever een overzicht van alle gerealiseerde functies, afwijkingen en nog externe vereisten.
+25. Eindevaluatie en definitie van gereed
+TuinWerk OS is gereed voor dagelijks gebruik wanneer een medewerker zonder uitleg op een echte telefoon een defect kan melden, een collega het werk kan oppakken, onderdelen kan registreren en de reparatie kan afronden; wanneer alle medewerkers hun eigen en gezamenlijke planning zien; en wanneer herhalingen, inventarisaties, herstel en beveiliging aantoonbaar correct werken.
+Definitieve scopebevestiging
+Alle eerdere adviezen zijn opgenomen: snelle storingsmelding, volledige machinehistorie, QR-codes, offline werken, taaksjablonen, seizoensplanning, spraakinvoer, tijdregistratie, storingsstatistieken, PDF/Excel-export, automatische weekoverzichten en een optionele AI-assistent. Geen inkoopmodule; wel onderdelenvoorraad en een aanvullijst.
+
+Dit document is een functionele en technische bouwspecificatie. Voor een echte iOS-release blijven Apple-account en distributiekeuze externe randvoorwaarden; een app kan pas als geplaatst op echte apparaten worden beschouwd nadat die installatie is getest.

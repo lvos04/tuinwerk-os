@@ -1,0 +1,68 @@
+name: Verify TuinWerk OS
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tuinwerk
+          POSTGRES_USER: tuinwerk
+          POSTGRES_PASSWORD: ci_test_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U tuinwerk -d tuinwerk'
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://tuinwerk:ci_test_password@localhost:5432/tuinwerk
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run migrate --workspace=@tuinwerk/api
+      - run: npm run typecheck --workspaces --if-present
+      - run: npm test --workspaces --if-present
+      - run: npm run build --workspace=@tuinwerk/api
+      - run: npm run build --workspace=@tuinwerk/web
+        env:
+          NODE_ENV: production
+      - run: bash -n scripts/*.sh deploy/custom-app/*.sh
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - run: POSTGRES_PASSWORD=ci_password APP_HOST=localhost docker compose config --quiet
+      - run: docker build -f deploy/custom-app/Dockerfile -t tuinwerk-custom:ci .
+      - run: npx playwright install --with-deps chromium
+      - name: Start acceptance stack
+        env:
+          ADMIN_EMAIL: ci@example.test
+          ADMIN_PASSWORD: ci-only-password-0001
+          ADMIN_NAME: CI beheerder
+          NODE_ENV: production
+        run: |
+          npm run bootstrap --workspace=@tuinwerk/api
+          npm run start --workspace=@tuinwerk/api > /tmp/api.log 2>&1 &
+          npm run start --workspace=@tuinwerk/web > /tmp/web.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:3001/api/health >/dev/null && curl -fsS http://localhost:3000 >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/api.log /tmp/web.log
+          exit 1
+      - run: npm run test:e2e
+        env:
+          WEB_URL: http://localhost:3000
+          E2E_EMAIL: ci@example.test
+          E2E_PASSWORD: ci-only-password-0001
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: test-results/
