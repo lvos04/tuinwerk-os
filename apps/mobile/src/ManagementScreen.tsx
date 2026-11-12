@@ -5,6 +5,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
 import { Session, authorizedRequest } from "./api";
+import { ServerSettingsScreen } from "./ServerSettingsScreen";
 import {
   NativeButton as Button,
   NativeField as Field,
@@ -179,7 +180,12 @@ export function ManagementScreen({
           preferences: "Voorkeuren",
           sessions: "Apparaten",
           ...(session.user.role === "admin"
-            ? { admin: "Beheer", imports: "Import", mfa: "Tweede factor" }
+            ? {
+                admin: "Beheer",
+                server: "Server en back-ups",
+                imports: "Import",
+                mfa: "Tweede factor",
+              }
             : {}),
         }}
       />
@@ -669,6 +675,9 @@ export function ManagementScreen({
             </>
           )}
         </>
+      )}
+      {page === "server" && session.user.role === "admin" && (
+        <ServerSettingsScreen session={session} />
       )}
       {page === "admin" && session.user.role === "admin" && (
         <>

@@ -17,3 +17,9 @@ backups/
 *.mobileprovision
 __pycache__/
 *.pyc
+# Local development runtime secrets and control spool (never source files).
+apps/api/config/
+apps/api/control/
+*.twb
+
+.next-*/

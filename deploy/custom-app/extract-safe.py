@@ -13,10 +13,14 @@ with tarfile.open(source, 'r:') as archive:
         if not parts:
             continue
         if kind == 'outer':
-            if len(parts) != 1 or parts[0] not in {'database.dump', 'files.tar', 'manifest.txt', 'SHA256SUMS'}:
+            if len(parts) != 1 or parts[0] not in {'database.dump', 'files.tar', 'manifest.txt', 'manifest.json', 'SHA256SUMS'}:
                 raise SystemExit('Unknown backup member')
-        elif parts[0] not in {'uploads', 'exports'}:
+        elif parts[0] not in {'uploads', 'exports', 'config'}:
             raise SystemExit('Unexpected data directory')
+    if kind == 'files-v2':
+        names = {str(pathlib.PurePosixPath(member.name)) for member in members if member.isfile()}
+        if 'config/settings.key' not in names:
+            raise SystemExit('Backup is missing the protected settings key')
     if destination != '--check':
         # All entries are validated regular files/directories in an operator-owned target.
         archive.extractall(destination, members=members)

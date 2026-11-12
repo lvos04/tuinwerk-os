@@ -18,3 +18,8 @@ test-results
 playwright-report
 **/coverage
 **/*.tsbuildinfo
+apps/api/config
+apps/api/control
+**/*.twb
+
+**/.next-*

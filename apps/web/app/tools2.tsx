@@ -265,7 +265,7 @@ export function AdvancedTools({
           <div className="alert">
             {aiStatus?.enabled
               ? "Provider: " + aiStatus.provider + " · " + aiStatus.model
-              : "AI is uitgeschakeld. De beheerder kan de provider, sleutel en budgetten instellen in de serverconfiguratie."}
+              : "AI is uitgeschakeld. De beheerder kan de provider, sleutel en budgetten instellen via Beheer → Instellingen → Optionele AI-assistent."}
           </div>
           <form
             onSubmit={(e) =>
@@ -344,7 +344,9 @@ export function AdvancedTools({
           </p>
           {!mfa?.available && (
             <div className="alert error">
-              De serverbeheerder moet eerst TOTP_ENCRYPTION_KEY instellen.
+              De beveiligingssleutel is nog niet beschikbaar. De server maakt
+              deze automatisch aan; controleer of de configuratieopslag
+              toegankelijk is.
             </div>
           )}
           <p>

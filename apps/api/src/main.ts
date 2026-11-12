@@ -1,3 +1,4 @@
+import { startRuntimeSettings } from "./settings";
 import "reflect-metadata";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { NestFactory } from "@nestjs/core";
@@ -27,11 +28,9 @@ class Errors implements ExceptionFilter {
         .status(400)
         .json({ message: "Ongeldige gegevens of verwijzing" });
     if (e.code === "23505")
-      return res
-        .status(409)
-        .json({
-          message: "Dit record bestaat al of er is al een actieve timer",
-        });
+      return res.status(409).json({
+        message: "Dit record bestaat al of er is al een actieve timer",
+      });
     console.error(
       JSON.stringify({ level: "error", message: e.message, code: e.code }),
     );
@@ -39,6 +38,7 @@ class Errors implements ExceptionFilter {
   }
 }
 export async function createApp() {
+  const stopSettings = await startRuntimeSettings();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
@@ -47,7 +47,17 @@ export async function createApp() {
   app.setGlobalPrefix("api");
   app.use(helmet());
   app.enableCors({
-    origin: (process.env.CORS_ORIGINS || "http://localhost:3000").split(","),
+    origin: (origin, callback) => {
+      const allowed = (process.env.CORS_ORIGINS || "")
+        .split(",")
+        .filter(Boolean);
+      if (process.env.APP_URL) {
+        try {
+          allowed.push(new URL(process.env.APP_URL).origin);
+        } catch {}
+      }
+      callback(null, !origin || allowed.includes(origin));
+    },
   });
   app.useGlobalFilters(new Errors());
   app.enableShutdownHooks();
@@ -64,6 +74,11 @@ export async function createApp() {
     app,
     SwaggerModule.createDocument(app, config),
   );
+  const close = app.close.bind(app);
+  app.close = async () => {
+    stopSettings();
+    await close();
+  };
   await app.init();
   return app;
 }

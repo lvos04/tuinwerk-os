@@ -1509,3 +1509,254 @@ hr {
   gap: 15px;
   flex-wrap: wrap;
 }
+
+.setup-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background:
+    radial-gradient(ellipse at top left, #e5efdc, transparent 60%), var(--bg);
+}
+.setup-card {
+  padding: 42px;
+  max-width: 640px;
+  width: 100%;
+  box-shadow: 0 20px 70px #23452f0d;
+}
+.setup-card .brand {
+  margin-bottom: 35px;
+  padding: 0;
+}
+.setup-card h1 {
+  font-size: 27px;
+}
+.setup-card .eyebrow {
+  margin-top: 15px;
+}
+.setup-summary {
+  padding: 22px;
+  border-radius: 10px;
+  background: #edf4e7;
+  display: flex;
+  gap: 18px;
+  margin: 25px 0;
+  color: #406634;
+}
+.setup-summary h3 {
+  margin: 0;
+}
+.setup-summary p {
+  margin: 10px 0;
+}
+.system-section {
+  margin-bottom: 25px;
+}
+.system-section > h2 {
+  font-size: 20px;
+}
+.settings-tabs {
+  flex-wrap: wrap;
+  gap: 19px;
+  margin-bottom: 25px;
+}
+.settings-tabs button {
+  padding: 12px 0;
+}
+.system-section .form-grid {
+  max-width: 900px;
+  align-items: start;
+  gap: 4px 22px;
+}
+.system-section .form-grid > .checkbox {
+  min-height: 44px;
+}
+.security-note {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 25px;
+  padding: 16px;
+  background: #f3f6ee;
+  border-radius: 8px;
+  color: #79916d;
+}
+.security-note svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.security-note p {
+  margin: 0;
+  font-size: 12px;
+}
+.setup-help {
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 22px 0;
+}
+.setup-help summary,
+.backup-key summary,
+.restore-section summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--green);
+  line-height: 1.6;
+  min-height: 32px;
+}
+.setup-help li {
+  font-size: 13px;
+  line-height: 1.8;
+  margin-bottom: 10px;
+}
+.setup-help a {
+  color: var(--green);
+  text-decoration: underline;
+}
+.setup-help a svg {
+  vertical-align: middle;
+}
+.connection-state {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 17px;
+}
+.device-code {
+  border: 1px solid #cbdcbc;
+  border-radius: 10px;
+  background: #f0f7e9;
+  padding: 24px;
+  margin-top: 23px;
+  max-width: 650px;
+}
+.device-code > strong {
+  display: block;
+  font-family: monospace;
+  font-size: 29px;
+  letter-spacing: 5px;
+  background: white;
+  border: 1px dashed #9bb48c;
+  border-radius: 8px;
+  padding: 17px;
+  margin: 20px 0;
+  text-align: center;
+}
+.device-code p {
+  font-size: 13px;
+}
+.panel-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+.backup-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 17px;
+  margin: 22px 0;
+}
+.backup-status-grid > div {
+  padding: 17px;
+  background: #f4f7ef;
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: #6e8a60;
+}
+.backup-status-grid small {
+  color: #8a9c7d;
+}
+.backup-status-grid strong {
+  font-size: 13px;
+  color: #4d6d3e;
+}
+.backup-key {
+  border: 1px solid #dbe5d1;
+  border-radius: 10px;
+  padding: 18px;
+  margin: 25px 0;
+}
+.recovery-card {
+  margin: 20px 0;
+  padding: 18px;
+  background: #f3f7ed;
+  border-radius: 9px;
+}
+.restore-section {
+  margin-top: 28px;
+  padding: 20px;
+  border: 1px solid #eadbcc;
+  border-radius: 9px;
+  background: #fffcf8;
+}
+.restore-section > p {
+  font-size: 13px;
+  color: #8b7963;
+}
+.restore-preview {
+  background: white;
+  border: 1px solid #dae4d1;
+  border-radius: 9px;
+  padding: 23px;
+  margin-top: 23px;
+}
+.restore-preview dl,
+.system-status-list {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.5fr) 1fr;
+  gap: 13px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 20px 0 25px;
+}
+.restore-preview dt,
+.system-status-list dt {
+  color: #8a9b7d;
+}
+.restore-preview dd,
+.system-status-list dd {
+  margin: 0;
+  min-width: 0;
+}
+.system-section progress {
+  width: 100%;
+  height: 7px;
+  margin-top: 10px;
+  accent-color: var(--green);
+}
+@media (max-width: 600px) {
+  .setup-card {
+    padding: 25px;
+  }
+  .setup-screen {
+    padding: 20px 12px;
+  }
+  .backup-status-grid {
+    grid-template-columns: 1fr;
+  }
+  .system-section {
+    padding: 20px;
+  }
+  .settings-tabs {
+    gap: 13px;
+  }
+  .device-code > strong {
+    font-size: 22px;
+  }
+  .restore-preview {
+    padding: 16px;
+  }
+  .restore-preview dl,
+  .system-status-list {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .restore-preview dd,
+  .system-status-list dd {
+    margin-bottom: 10px;
+  }
+}

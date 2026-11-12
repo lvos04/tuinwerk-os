@@ -2,6 +2,30 @@
 
 Datum: **11 november 2026**, managed Linux/Docker-omgeving. Uitgevoerd door deployment-subagent, met onafhankelijke broncodereview door reporting-subagent. Dit is een feitelijk verslag; het is geen claim van installatie op de gebruiker zijn TrueNAS of telefoons.
 
+## Nieuwe volledige UI/API-herstelproef — 12 november 2026
+
+De nieuwe route is op twee achtereenvolgende, afzonderlijke lege runtimevolumes getest, zonder `ADMIN_*`-omgevingsvariabelen. De eerste beheerder is via de setup-API aangemaakt met de automatisch gegenereerde eenmalige code uit het beheerderslog. Instellingen, een geheim SMTP-testwachtwoord en de back-upherstelcode zijn via de geautoriseerde beheer-API opgeslagen. Het geheim is uitsluitend als testfixture gebruikt; er is geen externe SMTP-dienst aangeroepen.
+
+De echte root-helper maakte vervolgens een volledig `.twb`-archief met database, uploads, exports en configuratiesleutel. Het archief is via de download-API opgehaald; de broncontainer is verwijderd. Op een nieuwe lege installatie is een ander tijdelijk beheerdersaccount gemaakt en het archief via de upload-API aangeboden. Een verkeerde herstelcode werd afgewezen met behoud van die tijdelijke installatie. De juiste herstelcontrole en expliciete bevestiging voltooiden het herstel op **12 november 2026 om 04:49:58 UTC**.
+
+Na opnieuw inloggen met het oorspronkelijke account zijn daadwerkelijk gecontroleerd:
+
+- exact dezelfde SHA-256 van de oorspronkelijke instellingen-sleutel;
+- succesvol ontsleutelen van het oorspronkelijke SMTP-testgeheim, vergeleken via SHA-256;
+- herstelde bedrijfsinstelling;
+- taak- en locatie-ID's, exacte fotohash, voorraad vijf en één unieke onderhoudsbeurt;
+- geen achtergebleven actieve back-upjob die een nieuwe opdracht blokkeert;
+- een nieuwe volledige back-up na het herstel;
+- geslaagde samengestelde runtimehealthcheck met de back-uphelperheartbeat.
+
+De reproduceerbare probe staat in `scripts/runtime-backup-ui.mjs`. CI voert de route uit op de daadwerkelijk gebouwde release-image, met een herstartcontrole tussen bronback-up en nieuwe installatie. In deze beperkte lokale omgeving werden gebouwde API-/Next-artifacts read-only in de echte runtime gemount. De tests zijn API-gedreven en vormen geen claim dat de browserbediening van ieder nieuw beheerscherm in deze proef is aangeklikt. Een live Microsoft/OneDrive-account is niet gebruikt.
+
+De proef vond en corrigeerde twee integratieproblemen: de strikte proces-umask maakte de helperheartbeat onleesbaar voor de API, en een nginx-prefix met afsluitende slash veroorzaakte een ongewenste redirect op het aanmaken van een back-up. Status/resultaatbestanden krijgen nu expliciet modus 0640. De nginx-route is zonder die redirect en ondersteunt streamende back-upuploads tot de serverlimiet van 20 GiB, met een 21-GiB-proxygrens voor multipart-overhead. Algemene uploads ondersteunen de instelbare limiet tot 50 MiB met een 52-MiB-proxygrens.
+
+Daarnaast slagen drie helpertests voor encryptie/decryptie, verkeerde herstelcode, beschadigde ciphertext, verbod op padtraversal/arbitraire opdrachten, ontbrekende herstelcontrole en duurzaam geschreven groepsleesbare statusbestanden onder de strikte runtime-umask. Journals/resultaten en archiefpublicatie worden expliciet gefsynct; de volledige runtimeproef ging vooraf aan die aanvullende durability-hardening, die in CI opnieuw over de complete route wordt getoetst. De mobiele subagent heeft de root-helper onafhankelijk beoordeeld; de bevindingen over expliciete lokale/OneDrive-bronbinding en innerlijke manifest-ID zijn verwerkt. De vier bestaande retentietests blijven groen. Alle nieuwe testcontainers, volumes en runtimeimage zijn na afloop opgeruimd.
+
+## Eerdere CLI-herstelproef — 11 november 2026
+
 ## Opstelling en grenzen
 
 De runtime is gebouwd uit `node:22-alpine3.22` met PostgreSQL 17.11, nginx, supervisor, age, Bash en Python. De productie API en Next standalone-output zijn read-only in de runtimecontainer gemount. Zo werden dezelfde entrypoint, supervisorconfiguratie, scripts en services getest zonder extra kopieën van node_modules. `/data` was een nieuwe Docker-volume; toegang liep alleen via containerpoort 8080 op lokale hostpoort 3080.

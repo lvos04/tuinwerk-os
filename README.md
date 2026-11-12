@@ -15,7 +15,11 @@ Het oorspronkelijke [bouwplan](docs/BOUWPLAN.txt) en het [uitvoeringsplan](docs/
 
 ## Installeren op TrueNAS
 
-Gebruik de standaard **Custom App-interface**, zonder YAML. Geteste publieke releasecandidate: `ghcr.io/lvos04/tuinwerk-os:0.1.0-rc.1`. De gebundelde image bevat web, API, PostgreSQL en achtergrondtaken. Je koppelt één persistente dataset aan `/data` en stelt de webpoort en omgevingsvariabelen in via de interface. Volg de [installatiehandleiding met invultabel](docs/INSTALLATIE.md). Compose-bestanden in deze repository zijn uitsluitend voor ontwikkeling en tests.
+Gebruik de standaard **Custom App-interface**, zonder YAML. Gebruik de nieuwste gepubliceerde [releasecandidate](https://github.com/lvos04/tuinwerk-os/releases). De gebundelde image bevat web, API, PostgreSQL en achtergrondtaken. Je koppelt één persistente dataset aan `/data` en stelt de webpoort in via de interface. Er zijn geen verplichte omgevingsvariabelen: de eerste beheerder wordt via de welkomstwizard aangemaakt. Bedrijf, SMTP, AI, push, OneDrive en volledige versleutelde back-ups beheert u daarna in de app. Volg de [installatiehandleiding met invultabel](docs/INSTALLATIE.md). Compose-bestanden in deze repository zijn uitsluitend voor ontwikkeling en tests.
+
+## Back-ups en OneDrive
+
+Plan volledige versleutelde back-ups vanuit **Beheer → Instellingen → Back-ups**. De archieven bevatten database, bestanden en herstelbare configuratie met sleutels. Bewaar de herstelcode buiten de NAS. Met [OneDrive](docs/ONEDRIVE.md) worden archieven naar de eigen appmap geüpload; aanmelden vereist een eenmalige Microsoft-appregistratie. Downloaden, uploaden en gecontroleerd terugzetten verlopen via de UI. Zie [back-up en herstel](docs/BACKUP_HERSTEL.md).
 
 ## Ontwikkelen
 
@@ -34,7 +38,7 @@ npm run dev:web
 npm run dev:mobile
 ```
 
-Er zijn geen ingebouwde productieaccounts of standaardwachtwoorden. De bootstrap-procedure maakt de eerste beheerder aan. De mobiele app vraagt de configureerbare HTTPS-API-URL; localhost op een telefoon verwijst naar de telefoon zelf.
+Er zijn geen ingebouwde productieaccounts of standaardwachtwoorden. De welkomstwizard maakt de eerste beheerder aan met de eenmalige code uit de serverlogs; de bootstrap-procedure blijft beschikbaar voor ontwikkel- en testomgevingen. De mobiele app vraagt de configureerbare HTTPS-API-URL; localhost op een telefoon verwijst naar de telefoon zelf.
 
 ## Verificatie
 

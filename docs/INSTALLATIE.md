@@ -1,80 +1,53 @@
 # Installeren met de standaard TrueNAS Custom App
 
-**De gebruikersroute is één standaard Custom App via de TrueNAS-invulvelden. U hoeft geen YAML, Compose-bestand of apart database-applicatiebeheer te gebruiken.** De repository bouwt daarvoor één image met PostgreSQL, API, web, onderhoudsworker en interne HTTP-proxy. Een supervisor start en stopt de processen gecontroleerd. Compose in de repository is uitsluitend een ontwikkel-/testvoorziening.
+Installeer TuinWerk OS als **één standaard Custom App** met de gewone invulvelden. Daarna maakt u de beheerder aan en stelt u de toepassing in via de webinterface.
 
-## 1. Image beschikbaar maken
+## De noodzakelijke TrueNAS-velden
 
-De geteste releasecandidate is beschikbaar als **`ghcr.io/lvos04/tuinwerk-os:0.1.0-rc.1`**. De registry-manifest is op 11 november 2026 zonder authenticatie opgehaald; TrueNAS heeft voor deze publieke image geen registry-inlog nodig. De immutable manifestdigest is `sha256:b0637c742e26da055de6625b2861620f3f12f929aa6db0aeefc80169500f8098`.
-
-[Geslaagde imagepublicatie](https://github.com/lvos04/tuinwerk-os/actions/runs/43080459746) · [Geslaagde tests inclusief containerherstart](https://github.com/lvos04/tuinwerk-os/actions/runs/43080466192).
-
-Dit is een releasecandidate voor acceptatietests: echte TrueNAS- en medewerkersapparaten moeten nog worden gevalideerd. De image is voor x86-64/amd64. Toekomstige versies worden via **Build Custom App image** naar dezelfde repository gepubliceerd; kies alleen een werkelijk geslaagde versie.
-
-## 2. Eén dataset
-
-Maak via **Datasets → Add Dataset** bijvoorbeeld `apps/tuinwerk` in uw eigen pool. Deze dataset bevat `postgres`, `uploads`, `exports`, `backups` en `config`. Stel restrictieve ACL's in; geen algemene SMB-schrijftoegang. Het startproces initialiseert de interne rechten: PostgreSQL alleen zijn database, appgebruiker UID 1000 alleen uploads/exports. De container start als root voor procesbeheer en schakelt de diensten naar hun eigen gebruikers. Privileged mode en host networking zijn niet nodig.
-
-## 3. Custom App-invulvelden
-
-Ga naar **Apps → Discover Apps → Custom App** (benaming kan per SCALE-versie verschillen) en vul de standaard wizard in:
+Kies **Apps → Discover Apps → Custom App → Install Custom App** en vul in:
 
 | Veld | Waarde |
 |---|---|
 | Application name | `tuinwerk` |
 | Image repository | `ghcr.io/lvos04/tuinwerk-os` |
-| Image tag | `0.1.0-rc.1` |
-| Pull policy | If Not Present voor immutable tags |
-| Entrypoint/command | Leeg laten |
+| Image tag | De daadwerkelijk gepubliceerde release- of `sha-...`-tag |
 | Container port | `8080`, TCP |
-| Host port | Vrije poort, bijvoorbeeld `30080` |
+| Host port | Een vrije poort, bijvoorbeeld `30080` |
 | Storage type | Host Path |
-| Host path | Uw datasetpad, bijvoorbeeld `/mnt/uwpool/apps/tuinwerk` |
+| Host path | Uw blijvende dataset, bijvoorbeeld `/mnt/uwpool/apps/tuinwerk` |
 | Mount path | `/data`, schrijfbaar |
-| Custom User | Uit; image start supervisor als root, diensten als eigen gebruikers |
-| Disable Builtin Healthcheck | Uit; behoud de ingebouwde controle |
-| Privileged | Uit |
-| Host network | Uit |
-| Restart policy | Unless stopped / standaard herstartbeleid |
 
-Voeg omgevingsvariabelen toe via **Add Environment Variable**:
+Laat command/entrypoint leeg, Custom User uit, Privileged uit, Host Network uit en de ingebouwde healthcheck aan. Kies het gewone herstartbeleid **Unless Stopped**. Er zijn geen verplichte omgevingsvariabelen, shellcommando's of YAML-bestanden voor de eerste ingebruikname.
 
-| Naam | Waarde |
-|---|---|
-| `APP_URL` | Publieke/interne HTTPS-URL van uw proxy |
-| `CORS_ORIGINS` | Dezelfde HTTPS-origin |
-| `ADMIN_EMAIL` | Eerste beheerder e-mailadres |
-| `ADMIN_NAME` | Naam beheerder |
-| `ADMIN_PASSWORD` | Uniek sterk wachtwoord, minimaal 12 tekens |
-| `AI_ENABLED` | `false` |
-| `APP_TIMEZONE` | `Europe/Amsterdam` |
-| `TOTP_ENCRYPTION_KEY` | Optioneel exact 64 hextekens uit `openssl rand -hex 32`, voor beheerder-2FA |
-| `RECURRENCE_LOOKAHEAD_DAYS` | `28` |
-| `AGE_RECIPIENT` | Optioneel publieke age-ontvanger voor back-ups |
-| `BACKUP_RETENTION_APPLY` | `false`; pas na geteste dry-run eventueel `true` |
-| `BACKUP_KEEP_DAILY` / `BACKUP_KEEP_MONTHLY` | `30` / `12` |
+Maak de dataset vooraf via TrueNAS **Datasets → Add Dataset**. Geef deze geen algemene SMB-schrijftoegang. De app initialiseert zelf de interne PostgreSQL-, bestanden-, configuratie- en back-upmappen. Behoud dezelfde dataset bij iedere update.
 
-Klik **Install**. De container maakt een lege database aan, voert migraties uit en creëert een eerste beheerder zonder bestaand account te overschrijven. Verwijder `ADMIN_PASSWORD` na succesvolle eerste login uit de appconfiguratie en sla opnieuw op. Er is geen standaardwachtwoord. Maak voor medewerkers persoonlijke accounts.
+De workflow **Build Custom App image** publiceert release-images naar GitHub Packages. Gebruik uitsluitend een tag waarvan de publicatie werkelijk geslaagd is. De aanwezigheid van workflowcode bewijst niet dat die tag al bestaat. De image is voor x86-64/amd64. Zorg dat de NAS het package mag downloaden; gebruik indien nodig de registrycredentialvelden van TrueNAS.
 
-## 4. Toegang en controle
+## Eerste ingebruikname in de browser
 
-Open aanvankelijk via uw vertrouwde LAN/VPN `http://NAS-IP:30080`. Gebruik voor normale werking een bestaande HTTPS-reverse-proxy naar die poort; stel `APP_URL` en `CORS_ORIGINS` daarop af. Open de HTTP-poort niet rechtstreeks naar internet. Deze image beheert geen DNS of TLS-certificaten; maak een geldige HTTPS-route vóór mobiele productie. PostgreSQL en interne web/API-poorten luisteren alleen binnen de container en worden niet gepubliceerd. Gebruik nooit TrueNAS-beheercredentials als appwachtwoord.
+1. Open `http://NAS-IP:30080` op het vertrouwde lokale netwerk of via VPN.
+2. Open eenmaal de **Logs** van de Custom App in TrueNAS en kopieer de eenmalige installatiecode (`initial_setup_code`). Het welkomstscherm vraagt die code, uw naam, e-mailadres en een sterk wachtwoord voor de eerste beheerder. De code voorkomt dat een andere netwerkgebruiker de lege installatie overneemt; de eerste inrichting sluit zodra het account bestaat.
+3. Meld u aan en voeg onder **Beheer** persoonlijke medewerkersaccounts toe.
+4. Stel via **Instellingen** onder andere de bedrijfsnaam, app-URL, tijdzone, onderhoudsvooruitblik en gewenste meldingen in. Mail, push en optionele AI worden via de eigen configuratievelden ingesteld.
+5. Gebruik de browserinstellingen voor **Back-ups** om een herstelcode te maken, buiten de NAS te bewaren, de planning en bewaartermijn te kiezen en een eerste volledige back-up te starten.
+6. Verbind desgewenst **OneDrive** vanuit de webinterface en controleer zowel de lokale back-upstatus als de afzonderlijke cloud-uploadstatus.
 
-Controleer healthstatus/logs in Apps, login, taak met foto, voorraadverbruik en onderhoudsbeurt. Herstart de app en controleer dat alles terugkomt. Test offline synchronisatie op echte medewerkersapparaten. Wijs daarna de native apps naar de configureerbare HTTPS API-URL.
+De geheime instellingen worden versleuteld opgeslagen. De toepassing genereert zelf de lokale instellingen-sleutel en neemt deze mee in volledige, afzonderlijk versleutelde herstelarchieven. U hoeft daarvoor geen sleutel of `.env`-bestand handmatig te maken.
 
-## Updates en herstel
+Gebruik voor normale bedrijfsvoering een geldige HTTPS-route via uw bestaande reverse proxy en VPN. Configureer die URL daarna in de app. Publiceer de HTTP-app-poort, PostgreSQL of de TrueNAS-beheerinterface niet rechtstreeks op internet. DNS, certificaatuitgifte en Microsoft-accounttoestemming blijven voorzieningen van uw eigen netwerk/accounts.
 
-Maak eerst een gecontroleerde versleutelde back-up en noteer image-tag en tijd. Wijzig daarna alleen de image-tag in **Edit Custom App** naar een geteste release; bewaar dezelfde `/data`-mount. Migraties worden transactioneel uitgevoerd. Een oude image bij een nieuw schema is geen veilige rollback: herstel op een nieuwe dataset met de passende image en back-up. Zie BACKUP_HERSTEL.md. Verwijder nooit de dataset bij een normale appupdate.
+## OneDrive verbinden
 
-## Technische keuze
+De webinterface biedt de verbindingsstappen en een Microsoft-inlogcode. Een geldige Microsoft Application (client) ID voor device-code/public-clienttoegang is nodig; vul die in de app in. Daarna meldt u zich bij Microsoft aan en geeft u toestemming voor uw eigen OneDrive. Er worden geen Microsoft-wachtwoorden of client secrets in de TrueNAS-wizard gevraagd. De juiste accountsoort/tenant en doelmap zijn instelbaar in de UI. Zie ook de OneDrive-handleiding bij de applicatie.
 
-De functionele specificatie adviseert afzonderlijke containers. De expliciete gebruikerskeuze voor één standaard Custom App zonder YAML is doorslaggevend: processen zijn daarom in één beheerde image samengevoegd. Daardoor worden database en app samen bijgewerkt en deelt de app één containergrens. PostgreSQL 17 wordt uit Alpine 3.22 gebruikt; major-upgrades gebeuren via logische back-up/herstel, niet door een bestaande datadirectory onder een andere major te openen. Geen Docker-socketmount of privileged container nodig.
+## Controleren en bijwerken
 
-De werkelijke TrueNAS GUI-installatie en herstelduur moeten op de doel-NAS worden gevalideerd; een lokale image-test is geen bewijs van die fysieke productieacceptatie.
+Maak een taak met foto, voeg onderdelenvoorraad toe, voer onderhoud uit en herstart de Custom App. Controleer dat de gegevens bewaard zijn. Voer vervolgens de browsergestuurde herstelproef uit uit BACKUP_HERSTEL.md voordat u de app dagelijks gebruikt.
 
-## Optionele transporten
+Maak vóór een update een volledige versleutelde back-up en noteer de image-tag. Wijzig daarna de image-tag in **Edit Custom App** naar de geteste release. Laat de `/data`-mount staan. Migraties lopen automatisch. Teruggaan naar een incompatibele oude versie vereist herstel van de passende volledige back-up op een nieuwe dataset.
 
-Voeg alleen na configuratie via dezelfde GUI envvelden toe: SMTP_HOST, SMTP_PORT (587), SMTP_SECURE (false), SMTP_REQUIRE_TLS (true), SMTP_USER, SMTP_PASSWORD en SMTP_FROM voor e-mail; EXPO_PUSH_ENABLED=true en indien vereist EXPO_ACCESS_TOKEN voor native push. Zonder transport blijft de kernapp bruikbaar met in-appmeldingen. Echte bezorging vereist een afzonderlijke test. AI blijft uit tenzij AI_ENABLED=true en AI_BASE_URL (HTTPS OpenAI-compatible /v1), AI_MODEL, AI_API_KEY, AI_DAILY_TOKEN_BUDGET, AI_DAILY_BUDGET_EUR, AI_INPUT_EUR_PER_MILLION en AI_OUTPUT_EUR_PER_MILLION bewust zijn ingesteld. Deel alleen na expliciete gebruikersbevestiging. Secrets horen uitsluitend in de beschermde appconfiguratie.
+## Technische inrichting
 
-Bron voor de invulvelden: [TrueNAS Custom App Screens](https://www.truenas.com/docs/scale/apps/installcustomappscreens/) (geraadpleegd 11 november 2026). De documentatie onderscheidt **Custom App → Install Custom App** (guided wizard) van **Install via YAML**; gebruik de guided wizard.
+Eén Alpine-image beheert PostgreSQL 17, API, Next-webapp, onderhoudsworker, nginx en de beperkte back-uphelper via supervisor. De container begint als root voor procesbeheer; applicatie en database draaien met afzonderlijke gebruikers. De helper accepteert uitsluitend de vastgelegde back-up-/herstelopdrachten vanuit de geautoriseerde API. Er is geen Docker-socketmount of privileged container nodig. Compose-bestanden in de repository zijn ontwikkelvoorzieningen.
 
-Bewaar `TOTP_ENCRYPTION_KEY` afzonderlijk in de secretskluis en herstel die ongewijzigd op de nieuwe server. Verlies van de sleutel maakt bestaande 2FA-geheimen onleesbaar; databaseback-up alleen volstaat niet. Zonder sleutel is optionele 2FA niet beschikbaar.
+Bron voor de GUI-velden: [TrueNAS Custom App Screens](https://www.truenas.com/docs/scale/apps/installcustomappscreens/). Kies de guided wizard **Install Custom App**. De werkelijke installatie op de doel-NAS, de eigen TLS-route en de getekende mobiele releases blijven afzonderlijke acceptatietests.

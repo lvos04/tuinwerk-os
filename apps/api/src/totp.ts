@@ -1,3 +1,4 @@
+import { totpKey } from "./settings-crypto";
 import {
   createHmac,
   randomBytes,
@@ -63,10 +64,7 @@ export function verifyTotp(
   return null;
 }
 function encryptionKey() {
-  const key = process.env.TOTP_ENCRYPTION_KEY;
-  if (!key || !/^[0-9a-f]{64}$/i.test(key))
-    throw new Error("TOTP_ENCRYPTION_KEY moet 64 hextekens zijn");
-  return Buffer.from(key, "hex");
+  return totpKey();
 }
 export function encryptSecret(secret: string) {
   const iv = randomBytes(12),

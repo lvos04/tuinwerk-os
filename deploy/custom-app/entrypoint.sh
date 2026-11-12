@@ -3,10 +3,13 @@ set -Eeuo pipefail
 umask 077
 PG_BIN=${PG_BIN:-/usr/bin}
 PG_MAJOR=${PG_MAJOR:-17}
-mkdir -p /data/postgres /data/uploads /data/exports /data/backups /data/config /data/status /run/postgresql /run/nginx
+mkdir -p /data/postgres /data/uploads /data/exports /data/backups /data/config /data/status /data/control/requests /data/control/uploads /data/control/results /data/control/status /data/control/processing /run/postgresql /run/nginx
 chown postgres:postgres /data/postgres /run/postgresql
-chown node:node /data/uploads /data/exports
-chmod 700 /data/postgres /data/backups /data/config
+chown node:node /data/uploads /data/exports /data/config /data/control/requests /data/control/uploads
+chown root:node /data/backups /data/control /data/control/results /data/control/status
+chmod 750 /data/backups /data/control /data/control/results /data/control/status
+chmod 700 /data/control/requests /data/control/uploads /data/control/processing
+chmod 700 /data/postgres /data/config
 chmod 755 /data/status
 if [[ ! -s /data/postgres/PG_VERSION ]]; then
   runuser -u postgres -- "$PG_BIN/initdb" -D /data/postgres --encoding=UTF8 --locale=C --auth-local=peer --auth-host=trust

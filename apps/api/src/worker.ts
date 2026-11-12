@@ -1,13 +1,21 @@
 import "reflect-metadata";
 import { writeFile } from "node:fs/promises";
+import { backupTick, stopBackupProcessing } from "./backups";
+import { startRuntimeSettings, refreshRuntimeSettings } from "./settings";
 import { runMaintenance } from "./recurrence";
 import { reportingTick } from "./reporting";
 import { pool } from "./db";
-let running = false;
+let running = false,
+  backupRunning = false,
+  stopping = false;
+let timer: ReturnType<typeof setInterval> | undefined,
+  backupTimer: ReturnType<typeof setInterval> | undefined,
+  stopSettings: (() => void) | undefined;
 async function tick() {
-  if (running) return;
+  if (running || stopping) return;
   running = true;
   try {
+    await refreshRuntimeSettings();
     const result = await runMaintenance();
     await reportingTick();
     if (result.failures?.length)
@@ -28,11 +36,64 @@ async function tick() {
     running = false;
   }
 }
-const timer = setInterval(() => void tick(), 60000);
-void tick();
+async function backupLoop() {
+  if (backupRunning || stopping) return;
+  backupRunning = true;
+  try {
+    await backupTick();
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: "backup_tick_failed",
+        message:
+          "Back-upverwerking mislukt; controleer de back-upstatus in Beheer",
+      }),
+    );
+  } finally {
+    backupRunning = false;
+  }
+}
+void startRuntimeSettings()
+  .then((stop) => {
+    stopSettings = stop;
+    if (stopping) {
+      stop();
+      return;
+    }
+    timer = setInterval(() => void tick(), 60000);
+    backupTimer = setInterval(() => void backupLoop(), 60000);
+    void tick();
+    void backupLoop();
+  })
+  .catch(() => {
+    console.error(
+      JSON.stringify({
+        event: "worker_start_failed",
+        message: "Configuratie kon niet veilig worden geladen",
+      }),
+    );
+    process.exitCode = 1;
+    void pool.end();
+  });
 async function stop() {
-  clearInterval(timer);
-  while (running) await new Promise((r) => setTimeout(r, 100));
+  if (stopping) return;
+  stopping = true;
+  if (timer) clearInterval(timer);
+  if (backupTimer) clearInterval(backupTimer);
+  stopSettings?.();
+  stopBackupProcessing();
+  const deadline = Date.now() + 20000;
+  while ((running || backupRunning) && Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  if (running || backupRunning) {
+    console.error(
+      JSON.stringify({
+        event: "worker_shutdown_timeout",
+        message: "Onvoltooide jobs worden na herstart opnieuw gecontroleerd",
+      }),
+    );
+    process.exit(0);
+  }
   await pool.end();
   process.exit(0);
 }

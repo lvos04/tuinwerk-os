@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-exec 9>/data/config/backup.lock
+exec 9>/data/control/backup.lock
 flock -n 9 || { echo "Another backup or restore is running" >&2; exit 1; }
 : "${AGE_RECIPIENT:?Set AGE_RECIPIENT to the public encryption recipient}"
 work=$(mktemp -d /data/backups/.working-XXXXXX)
@@ -11,7 +11,7 @@ trap cleanup EXIT
 paused=1
 supervisorctl -c /opt/tuinwerk/supervisord.conf stop api worker web >/dev/null
 pg_dump "$DATABASE_URL" -Fc > "$work/database.dump"
-tar -C /data -cf "$work/files.tar" uploads exports
+tar -C /data -cf "$work/files.tar" uploads exports config
 printf 'format=1\ncreated=%s\n' "$(date -u +%FT%TZ)" > "$work/manifest.txt"
 (cd "$work" && sha256sum database.dump files.tar > SHA256SUMS)
 archive="/data/backups/tuinwerk-$(date -u +%Y%m%dT%H%M%SZ)-$$.tar.age"

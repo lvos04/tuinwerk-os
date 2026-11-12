@@ -12,6 +12,10 @@ import {
   UploadedFile,
   UseGuards,
   UseInterceptors,
+  Injectable,
+  NestInterceptor,
+  ExecutionContext,
+  CallHandler,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
@@ -38,6 +42,21 @@ function detect(b: Buffer) {
     "Alleen JPEG, PNG, WebP en PDF zijn toegestaan",
   );
 }
+@Injectable()
+class ConfiguredUploadInterceptor implements NestInterceptor {
+  async intercept(context: ExecutionContext, next: CallHandler) {
+    const configured = Number(process.env.MAX_UPLOAD_BYTES) || 10485760;
+    const Interceptor = FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: Math.max(1024, Math.min(52428800, configured)),
+        files: 1,
+        fields: 10,
+      },
+    });
+    return new Interceptor().intercept(context, next);
+  }
+}
 @Controller("attachments")
 @UseGuards(AuthGuard)
 export class AttachmentsController {
@@ -54,16 +73,7 @@ export class AttachmentsController {
     );
   }
   @Post()
-  @UseInterceptors(
-    FileInterceptor("file", {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: Number(process.env.MAX_UPLOAD_BYTES) || 10485760,
-        files: 1,
-        fields: 10,
-      },
-    }),
-  )
+  @UseInterceptors(ConfiguredUploadInterceptor)
   async upload(
     @CurrentUser() u: User,
     @Body() b: any,

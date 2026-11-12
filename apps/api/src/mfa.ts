@@ -28,7 +28,7 @@ export class MfaController {
     ]);
     return {
       enabled: r.mfa_enabled,
-      available: !!process.env.TOTP_ENCRYPTION_KEY,
+      available: true,
     };
   }
   @Post("setup") async setup(@CurrentUser() u: User, @Body() b: any) {
@@ -46,7 +46,7 @@ export class MfaController {
       encrypted = encryptSecret(secret);
     } catch {
       throw new ServiceUnavailableException(
-        "Beheerder moet TOTP_ENCRYPTION_KEY configureren",
+        "Versleutelde configuratieopslag is niet beschikbaar",
       );
     }
     await query("UPDATE users SET mfa_pending_secret=$1 WHERE id=$2", [

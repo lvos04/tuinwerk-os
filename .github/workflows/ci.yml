@@ -39,30 +39,35 @@ jobs:
       - run: npm run build --workspace=@tuinwerk/web
         env:
           NODE_ENV: production
-      - run: bash -n scripts/*.sh deploy/custom-app/*.sh
+      - run: for script in scripts/*.sh deploy/custom-app/*.sh; do bash -n "$script"; done
       - run: python3 -m unittest discover -s scripts/tests -v
+      - run: node --test scripts/tests/*.test.cjs
       - run: POSTGRES_PASSWORD=ci_password APP_HOST=localhost docker compose config --quiet
       - run: docker build -f deploy/custom-app/Dockerfile -t tuinwerk-custom:ci .
-      - name: Verify built Custom App image and persistent restart
+      - name: Verify UI setup, persistent restart and complete encrypted restore
         env:
-          TEST_ADMIN_EMAIL: container@example.test
-          TEST_ADMIN_PASSWORD: ci-container-password-0001
+          TEST_ADMIN_EMAIL: restore@example.test
+          TEST_ADMIN_PASSWORD: restore-test-password-0001
         run: |
-          docker run -d --name tuinwerk-ci -p 127.0.0.1:38080:8080 -e ADMIN_EMAIL="$TEST_ADMIN_EMAIL" -e ADMIN_PASSWORD="$TEST_ADMIN_PASSWORD" tuinwerk-custom:ci
-          for attempt in $(seq 1 90); do
-            if [ "$(docker inspect --format='{{.State.Health.Status}}' tuinwerk-ci)" = healthy ]; then break; fi
-            if [ "$attempt" = 90 ]; then docker logs tuinwerk-ci; exit 1; fi
-            sleep 2
-          done
-          node scripts/runtime-smoke.mjs seed http://localhost:38080 /tmp/container-expected.json
-          docker restart tuinwerk-ci
-          for attempt in $(seq 1 90); do
-            if [ "$(docker inspect --format='{{.State.Health.Status}}' tuinwerk-ci)" = healthy ]; then break; fi
-            if [ "$attempt" = 90 ]; then docker logs tuinwerk-ci; exit 1; fi
-            sleep 2
-          done
-          node scripts/runtime-smoke.mjs verify http://localhost:38080 /tmp/container-expected.json
-          docker rm -fv tuinwerk-ci
+          cleanup() { docker rm -fv tuinwerk-ui-source tuinwerk-ui-recovery >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          ready() {
+            for attempt in $(seq 1 90); do
+              if [ "$(docker inspect --format='{{.State.Health.Status}}' "$1")" = healthy ]; then return 0; fi
+              if [ "$attempt" = 90 ]; then docker logs "$1"; return 1; fi
+              sleep 2
+            done
+          }
+          docker run -d --name tuinwerk-ui-source -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          ready tuinwerk-ui-source
+          node scripts/runtime-backup-ui.mjs source tuinwerk-ui-source http://localhost:38080 /tmp/tuinwerk-ui-restore.json
+          docker restart tuinwerk-ui-source
+          ready tuinwerk-ui-source
+          node scripts/runtime-smoke.mjs verify http://localhost:38080 /tmp/tuinwerk-ui-restore.json.records
+          docker rm -fv tuinwerk-ui-source
+          docker run -d --name tuinwerk-ui-recovery -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          ready tuinwerk-ui-recovery
+          node scripts/runtime-backup-ui.mjs restore tuinwerk-ui-recovery http://localhost:38080 /tmp/tuinwerk-ui-restore.json
       - run: npx playwright install --with-deps chromium
       - name: Start acceptance stack
         env:

@@ -46,7 +46,7 @@ Zes subagents leverden implementaties; agents controleerden daarnaast elkaars we
 3. Een echte 24-uurs offline-/netwerkuitvalproef met meerdere apparaten, foto's en gelijktijdig voorraadverbruik.
 4. Eigen SMTP-, push- en optionele AI-provider met echte credentials testen; geen werkende bezorging of externe provideracceptatie veronderstellen.
 5. Bedrijfsgegevens, echte Todoist-export/mapping, werkprocessen en eindgebruikersacceptatie controleren. Testgegevens zijn geen bedrijfsgegevens.
-6. Herstelsleutel en TOTP-encryptiesleutel extern veilig bewaren; externe backupbestemming instellen en periodiek teruglezen.
+6. De back-upherstelcode extern veilig bewaren; de volledige archieven bevatten de TOTP- en instellingensleutels. OneDrive met het eigen Microsoft-account aanmelden en periodiek teruglezen.
 
 ## Bekende grenzen
 
@@ -66,3 +66,13 @@ De implementatie staat op branch `feat/complete-tuinwerk-os`, aangeboden als [co
 ## Geverifieerde releasecandidate
 
 `v0.1.0-rc.1` / container-tag `0.1.0-rc.1` is gepubliceerd. [De imageworkflow](https://github.com/lvos04/tuinwerk-os/actions/runs/43080459746) en [volledige CI met containerherstart en vier browserflows](https://github.com/lvos04/tuinwerk-os/actions/runs/43080466192) zijn geslaagd. Anonieme manifestopvraag gaf HTTP 200 met digest `sha256:b0637c742e26da055de6625b2861620f3f12f929aa6db0aeefc80169500f8098`. Hiermee zijn de bron-imagebuild en publicatie bewezen; de fysieke productiepoorten hierboven blijven staan.
+
+## Uitbreiding: UI-inrichting en OneDrive — 12 november 2026
+
+De Custom App vereist nu uitsluitend image, webpoort en persistente datamap. De welkomstwizard gebruikt een eenmalige eigenaarscode uit de TrueNAS-logs. Bedrijf, appadres, tijdzone, SMTP, AI, push, uploadlimiet, onderhoud en back-upplanning worden in web en native app ingesteld. Geheime instellingen zijn versleuteld, worden niet teruggestuurd en kunnen expliciet worden gewist. Gelijktijdige wijzigingen gebruiken versiecontrole.
+
+OneDrive gebruikt Microsoft device-code-aanmelding en uitsluitend de eigen appmap. Tokens en hervatbare uploadsessies worden versleuteld opgeslagen. Volledige `.twb`-archieven bevatten PostgreSQL, uploads, exports en configuratiesleutels; AES-256-GCM met scrypt beschermt de inhoud. De UI vraagt de herstelcode extern te bewaren voordat planning wordt ingesteld. Herstel vereist een succesvolle inhoudscontrole en expliciete bevestiging; de beperkte roothelper verzorgt consistente snapshots en terugval bij fouten.
+
+De Microsoft-protocoltests gebruiken een gesimuleerde Graph-dienst en een echte geïsoleerde PostgreSQL-database. Zij bewijzen geen live Microsoft-accounttoestemming; die controle blijft nodig met het eigen account. Lokale bewaartermijnen verwijderen geen cloudarchieven.
+
+Aanvullende lokale verificatie op 12 november: 35 API-tests, 11 mobiele tests, 3 archiefcryptografie-/opdrachtvalidatietests en 4 retentietests geslaagd; typechecks en productiebuilds groen. Acht browserscenario’s op echte PostgreSQL/HTTP zijn geslaagd (vier bestaande werkprocessen en vier nieuwe inrichting-/instellingenflows), inclusief desktop- en 390px-controle. Android/iOS-Metrobundels zijn opnieuw gegenereerd. De nieuwe herstelproef verifieert ook dat de originele configuratiesleutel terugkomt, het opgeslagen SMTP-geheim weer ontsleutelt en na herstel een volgende back-up mogelijk is.

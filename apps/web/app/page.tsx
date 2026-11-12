@@ -37,6 +37,12 @@ import {
 import { Calendar, AnnotationEditor } from "./tools";
 import { AdvancedTools, MediaGallery } from "./tools2";
 import { YearPlanning } from "./year-planning";
+import {
+  SetupGate,
+  ApplicationSettings,
+  OneDriveConnection,
+} from "./system-settings";
+import { BackupPanel } from "./backup-panel";
 type Row = Record<string, any>;
 const statuses: Record<string, string> = {
   open: "Open",
@@ -102,7 +108,7 @@ function Empty({
     </div>
   );
 }
-export default function App() {
+function Workspace() {
   const [token, setToken] = useState(""),
     [user, setUser] = useState<Row | null>(null),
     [page, setPage] = useState("dashboard"),
@@ -130,6 +136,7 @@ export default function App() {
     [counts, setCounts] = useState<Row[]>([]),
     [balances, setBalances] = useState<Row[]>([]),
     [sessions, setSessions] = useState<Row[]>([]);
+  const [connectionRevision, setConnectionRevision] = useState(0);
   const refreshFlight = useRef<Promise<string> | null>(null);
   const deepLinkHandled = useRef(false);
   const [annotationTarget, setAnnotationTarget] = useState<Row | null>(null),
@@ -239,7 +246,11 @@ export default function App() {
       }
       throw new Error(
         res.status === 409
-          ? "Conflict: deze gegevens zijn intussen gewijzigd of de voorraad is onvoldoende. Vernieuw en controleer je invoer."
+          ? "Conflict: " +
+              (Array.isArray(b?.message)
+                ? b.message.join(", ")
+                : b?.message ||
+                  "Gegevens zijn gewijzigd. Vernieuw en controleer je invoer.")
           : (Array.isArray(b?.message) ? b.message.join(", ") : b?.message) ||
               "De aanvraag is mislukt (" + res.status + ").",
       );
@@ -537,6 +548,11 @@ export default function App() {
                   required
                   autoComplete="username"
                   placeholder="naam@bedrijf.nl"
+                  defaultValue={
+                    typeof window !== "undefined"
+                      ? sessionStorage.getItem("tuinwerk-setup-email") || ""
+                      : ""
+                  }
                 />
               </Field>
               <Field label="Wachtwoord">
@@ -1572,68 +1588,123 @@ export default function App() {
             </>
           )}
           {page === "settings" && (
-            <div className="settings-grid">
-              <section className="panel padded">
-                <h2>Systeemstatus</h2>
-                {adminStatus && (
-                  <pre className="preview">
-                    {JSON.stringify(adminStatus, null, 2)}
-                  </pre>
-                )}
-                <h2>Teamleden</h2>
-                {users.map((u) => (
-                  <div className="task-row" key={u.id}>
-                    <span className="avatar">{u.name?.slice(0, 1)}</span>
-                    <span className="task-text">
-                      <strong>{u.name}</strong>
-                      <small>{u.email}</small>
-                    </span>
-                    <span className="badge">
-                      {u.role === "admin" ? "Beheerder" : "Medewerker"}
-                    </span>
-                  </div>
-                ))}
-              </section>
-              <section className="panel padded">
-                <h2>Gegevens importeren</h2>
-                <p className="muted">
-                  Controleer eerst de voorbeeldweergave voordat je een import
-                  bevestigt.
-                </p>
-                <button
-                  className="secondary"
-                  onClick={() => setDialog("import")}
-                >
-                  <Upload size={17} /> CSV / Todoist importeren
-                </button>
-                <hr />
-                <h2>Aanmeldsessies</h2>
-                {sessions.map((s) => (
-                  <div className="task-row" key={s.id}>
-                    <span className="task-text">
-                      {s.device || s.deviceName || s.userAgent || "Apparaat"}
-                      <small>{date(s.createdAt)}</small>
-                    </span>
-                    <button
-                      className="text-button"
-                      onClick={() =>
-                        run(async () => {
-                          await api("/auth/sessions/" + s.id, {
-                            method: "DELETE",
-                          });
-                          setSessions(await api("/auth/sessions"));
-                        })
-                      }
-                    >
-                      Intrekken
-                    </button>
-                  </div>
-                ))}
-                {!sessions.length && (
-                  <p className="muted">Geen sessiegegevens beschikbaar.</p>
-                )}
-              </section>
-            </div>
+            <>
+              <ApplicationSettings
+                api={api}
+                onSecurity={() => setDialog("advanced")}
+                onChanged={() => setConnectionRevision((value) => value + 1)}
+              />
+              <OneDriveConnection
+                api={api}
+                onChanged={() => setConnectionRevision((value) => value + 1)}
+              />
+              <BackupPanel
+                api={api}
+                token={token}
+                connectionRevision={connectionRevision}
+              />
+              <div className="settings-grid">
+                <section className="panel padded">
+                  <h2>Systeemstatus</h2>
+                  {adminStatus && (
+                    <dl className="system-status-list">
+                      <dt>Database</dt>
+                      <dd>
+                        {(
+                          Number(adminStatus.databaseBytes || 0) /
+                          1024 /
+                          1024
+                        ).toLocaleString("nl-NL", {
+                          maximumFractionDigits: 1,
+                        })}{" "}
+                        MB
+                      </dd>
+                      <dt>Vrije opslag</dt>
+                      <dd>
+                        {adminStatus.storage
+                          ? (
+                              Number(adminStatus.storage.availableBytes) /
+                              1024 /
+                              1024 /
+                              1024
+                            ).toLocaleString("nl-NL", {
+                              maximumFractionDigits: 1,
+                            }) + " GB"
+                          : "Niet beschikbaar"}
+                      </dd>
+                      <dt>Achtergrondtaken</dt>
+                      <dd>
+                        {adminStatus.worker?.state === "ok"
+                          ? "Actief"
+                          : adminStatus.worker?.state === "stale"
+                            ? "Controle nodig"
+                            : "Status onbekend"}
+                      </dd>
+                      <dt>E-mail</dt>
+                      <dd>
+                        {adminStatus.transports?.email || "Niet ingesteld"}
+                      </dd>
+                      <dt>Push</dt>
+                      <dd>
+                        {adminStatus.transports?.push || "Niet ingesteld"}
+                      </dd>
+                    </dl>
+                  )}
+                  <h2>Teamleden</h2>
+                  {users.map((u) => (
+                    <div className="task-row" key={u.id}>
+                      <span className="avatar">{u.name?.slice(0, 1)}</span>
+                      <span className="task-text">
+                        <strong>{u.name}</strong>
+                        <small>{u.email}</small>
+                      </span>
+                      <span className="badge">
+                        {u.role === "admin" ? "Beheerder" : "Medewerker"}
+                      </span>
+                    </div>
+                  ))}
+                </section>
+                <section className="panel padded">
+                  <h2>Gegevens importeren</h2>
+                  <p className="muted">
+                    Controleer eerst de voorbeeldweergave voordat je een import
+                    bevestigt.
+                  </p>
+                  <button
+                    className="secondary"
+                    onClick={() => setDialog("import")}
+                  >
+                    <Upload size={17} /> CSV / Todoist importeren
+                  </button>
+                  <hr />
+                  <h2>Aanmeldsessies</h2>
+                  {sessions.map((s) => (
+                    <div className="task-row" key={s.id}>
+                      <span className="task-text">
+                        {s.device || s.deviceName || s.userAgent || "Apparaat"}
+                        <small>{date(s.createdAt)}</small>
+                      </span>
+                      <button
+                        className="text-button"
+                        onClick={() =>
+                          run(async () => {
+                            await api("/auth/sessions/" + s.id, {
+                              method: "DELETE",
+                            });
+                            setSessions(await api("/auth/sessions"));
+                          })
+                        }
+                      >
+                        Intrekken
+                      </button>
+                    </div>
+                  ))}
+                  {!sessions.length && (
+                    <p className="muted">Geen sessiegegevens beschikbaar.</p>
+                  )}
+                </section>
+              </div>
+            </>
           )}
           <footer className="page-footer">
             <Sprout size={14} /> TuinWerk OS{" "}
@@ -3447,5 +3518,13 @@ function ImportForm({
         </>
       )}
     </>
+  );
+}
+
+export default function App() {
+  return (
+    <SetupGate>
+      <Workspace />
+    </SetupGate>
   );
 }

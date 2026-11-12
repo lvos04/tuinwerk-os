@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 umask 077
-exec 9>/data/config/backup.lock
+exec 9>/data/control/backup.lock
 flock -n 9 || { echo "Another backup or restore is running" >&2; exit 1; }
 [[ ${RESTORE_CONFIRM:-} == REPLACE_THIS_INSTALLATION ]] || { echo 'Set RESTORE_CONFIRM=REPLACE_THIS_INSTALLATION only on a disposable new recovery installation.' >&2; exit 2; }
 : "${AGE_IDENTITY:?Set path of private age identity}"
@@ -19,7 +19,7 @@ runuser -u postgres -- createdb -O tuinwerk tuinwerk
 pg_restore --dbname="$DATABASE_URL" --no-owner --exit-on-error < "$work/database.dump"
 rm -rf /data/uploads /data/exports
 python3 /opt/tuinwerk/extract-safe.py files "$work/files.tar" /data
-chown -R node:node /data/uploads /data/exports
+chown -R node:node /data/uploads /data/exports /data/config
 runuser -u node -- node /app/api/dist/migrate.js
 supervisorctl -c /opt/tuinwerk/supervisord.conf start backup api worker web >/dev/null
 printf 'Restore complete; verify records and photos before switching users to this server.\n'

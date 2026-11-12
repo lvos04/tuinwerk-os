@@ -1,3 +1,6 @@
+import { BackupsController } from "./backups";
+import { OneDriveController } from "./onedrive";
+import { SettingsController, SetupController } from "./settings";
 import { MfaController } from "./mfa";
 import { CatalogImportController } from "./catalog-import";
 import { WorkspaceController } from "./workspace";
@@ -17,6 +20,10 @@ import { RecurrenceController, SeasonController } from "./recurrence";
 import { ReportingController } from "./reporting";
 @Module({
   controllers: [
+    BackupsController,
+    OneDriveController,
+    SettingsController,
+    SetupController,
     MfaController,
     CatalogImportController,
     WorkspaceController,

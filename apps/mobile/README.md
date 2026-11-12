@@ -46,5 +46,16 @@ De conflicteditor biedt invoervelden voor taakgegevens, toewijzing, checklist, h
 
 QR-resolutie gebruikt de gecachete catalogus en vraagt synchronisatie wanneer een object ontbreekt. Jaarplanning combineert bevestigde taken met per jaar gecachete serverprognoses uit `/recurrences/forecast`. Prognoses zijn zichtbaar als nog niet gegenereerde werkopdrachten; uitvoeringsintervalprognoses dragen een voorlopig-label. De onderhoudswerkruimte toont herhaalregels en historie. Prognoses maken geen taken aan. De wachtrij is begrensd op 500 operaties en 250 MB foto’s. Cachemedia hebben een afzonderlijk 250 MB-budget; tekst-detailcache-retentie blijft een beheerkeuze. Netwerkfouten hebben een 60-seconden-timeout. Uploadstatus wordt per operatie getoond, zonder byte-percentage. Een fysieke 24-uurs offline-test en herstel van uploads bij app-/OS-onderbreking blijven releasepoorten; JavaScript-tests vervangen die niet.
 
-
 Expo SDK 54-dependencies zijn met `expo install --check` gecontroleerd. De Metro image-size-dependency is via root override naar de gepatchte 2.1-versie gebracht en wordt met beide platformbundels gevalideerd. Onderhoud/upgrades en advisories moeten vóór distributie opnieuw beoordeeld worden; een bundeltest is geen volledige security-audit.
+
+## Serverinstellingen, OneDrive en herstel vanuit de app
+
+Beheerders openen **Meer → Rapporten, catalogus en beheer → Server en back-ups**. Hier zijn bedrijfsinstellingen, SMTP, AI-budgetten, push en onderhoudsvooruitzicht te wijzigen zonder configuratiebestanden. Geheime waarden blijven leeg bij het heropenen: leeg opslaan behoudt het bestaande geheim; wissen is een afzonderlijke bevestigde actie. De schermen gebruiken versiecontrole en bewaren invoer na een serverconflict. Deze configuratie wordt niet in de offline SQLite-cache opgeslagen.
+
+Bij **Back-ups** maak je een herstelcode, bewaar je die via de deelactie buiten de NAS en bevestig je het bewaren voordat je de nieuwe sleutel opslaat. De dagelijkse tijd, lokale bewaartermijn en OneDrive-kopie zijn instelbaar. Oude OneDrive-archieven worden niet automatisch gewist door de lokale bewaartermijn; oude herstelcodes blijven nodig zolang bijbehorende archieven bestaan.
+
+Bij **OneDrive** voer je de openbare Application-ID van je eigen Microsoft-appregistratie in, kies je accountsoort en appsubmap en open je Microsofts device-code-aanmelding. De app toont alleen de tijdelijke gebruikerscode; device-/access-/refresh-tokens blijven op de server. Voortgang en mislukte overdrachten zijn zichtbaar en een mislukte cloudkopie is opnieuw aan te vragen. Een Microsoft-appregistratie en werkende accountmachtiging blijven externe vereisten.
+
+Herstel ondersteunt lokale archieven, een via de toestelbestandskiezer geüpload UUID.twb-bestand en OneDrive-archieven. Uploads gebruiken de native bestandsuploader met voortgang. De extern bewaarde herstelcode wordt handmatig ingevoerd voor de ontsleutel-/controleproef; pas na een geslaagde proef en de exacte `HERSTEL <archief-ID>`-bevestiging kan de vervangende herstelactie worden gestart. Een herstel kan de huidige sessie beëindigen. Een herstelcode die uitsluitend op een verloren NAS staat, is niet voldoende: bewaar deze onafhankelijk.
+
+De nieuwe instellingen-/back-upschermen zijn getypecheckt en de payloadregels zijn automatisch getest. Werkelijke native OneDrive-aanmelding, grote bestandsuploads en destructief herstel via een fysiek toestel vereisen nog apparaat- en accountacceptatie; de code claimt die tests niet als uitgevoerd.
