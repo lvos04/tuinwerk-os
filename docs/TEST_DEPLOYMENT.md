@@ -65,3 +65,7 @@ De onafhankelijke review leidde tot: hersteltrap activeren vóór gedeeltelijke 
 ## Nog externe acceptatie
 
 Installeer de gepubliceerde release-image via de echte TrueNAS **Install Custom App**-wizard, test dataset-ACL's, eigen TLS/VPN, update/herstart en herstel op de doelhost. Test de ondertekende native releases en externe SMTP/push/AI alleen met de feitelijke accounts, credentials en apparaten. De GUI-stappen zijn gecontroleerd tegen de officiële TrueNAS-documentatie; interactie met de echte NAS is niet uitgevoerd.
+
+## Herhaling op de 0.2-releasebron
+
+[CI-run 43178305992](https://github.com/lvos04/tuinwerk-os/actions/runs/43178305992) heeft op broncommit `b013d96` de volledige Custom App-image gebouwd en de eerste inrichting, persistente herstart en volledige versleutelde herstelroute opnieuw succesvol uitgevoerd. Dit omvat migraties 001–019, verplichte configuratiesleutels in het archief en de nieuwe alleen-lezen `pg_restore --list`-controle vóór herstel. De 15 productie-browserflows slaagden aansluitend. Het betreft een geïsoleerde CI-container; de doel-TrueNAS en live OneDrive-aanmelding blijven apart te accepteren.
