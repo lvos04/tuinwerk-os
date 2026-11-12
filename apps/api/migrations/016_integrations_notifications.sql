@@ -1,0 +1,11 @@
+CREATE TABLE integration_tests(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users,kind text NOT NULL CHECK(kind IN ('smtp','push','onedrive')),status text NOT NULL CHECK(status IN ('passed','failed')),message text NOT NULL,config_fingerprint text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX integration_tests_recent ON integration_tests(user_id,kind,created_at DESC);
+ALTER TABLE onedrive_connection ADD COLUMN health_error_code text;
+ALTER TABLE onedrive_connection ADD COLUMN health_error_at timestamptz;
+ALTER TABLE onedrive_connection ADD COLUMN health_checked_at timestamptz;
+ALTER TABLE notification_preferences ADD COLUMN digest_minutes integer NOT NULL DEFAULT 5 CHECK(digest_minutes BETWEEN 0 AND 60);
+CREATE TABLE notification_batches(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users,channel text NOT NULL CHECK(channel IN ('email','push')),state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','sent','failed','skipped')),title text NOT NULL,body text NOT NULL,payload jsonb NOT NULL,critical boolean NOT NULL DEFAULT false,attempts integer NOT NULL DEFAULT 0,next_attempt_at timestamptz NOT NULL DEFAULT now(),last_error text,created_at timestamptz NOT NULL DEFAULT now(),sent_at timestamptz);
+CREATE INDEX notification_batches_pending ON notification_batches(next_attempt_at) WHERE state='pending';
+ALTER TABLE notification_deliveries ADD COLUMN batch_id uuid REFERENCES notification_batches;
+CREATE INDEX notification_deliveries_batch ON notification_deliveries(batch_id) WHERE batch_id IS NOT NULL;
+CREATE TABLE notification_batch_devices(batch_id uuid NOT NULL REFERENCES notification_batches ON DELETE CASCADE,device_id uuid NOT NULL REFERENCES push_devices ON DELETE CASCADE,state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','sent','invalid','failed')),attempts integer NOT NULL DEFAULT 0,receipt_id text,last_error text,PRIMARY KEY(batch_id,device_id));

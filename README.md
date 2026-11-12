@@ -21,6 +21,12 @@ Gebruik de standaard **Custom App-interface**, zonder YAML. Geverifieerde releas
 
 Plan volledige versleutelde back-ups vanuit **Beheer → Instellingen → Back-ups**. De archieven bevatten database, bestanden en herstelbare configuratie met sleutels. Bewaar de herstelcode buiten de NAS. Met [OneDrive](docs/ONEDRIVE.md) worden archieven naar de eigen appmap geüpload; aanmelden vereist een eenmalige Microsoft-appregistratie. Downloaden, uploaden en gecontroleerd terugzetten verlopen via de UI. Zie [back-up en herstel](docs/BACKUP_HERSTEL.md).
 
+## Dagelijks werken en mobiele distributie
+
+Versie 0.2 voegt een eenvoudiger mobiel startscherm, favorieten, een taakwerkpaneel, zichtbare synchronisatieconflicten, capaciteitsplanning en gebundelde meldingen toe. Beheer is verdeeld in overzichtelijke onderdelen met verbindingstests en duidelijke back-upgezondheid. Zie [de verbeteringen](docs/VERBETERINGEN_0_2.md).
+
+De mobiele productieprofielen richten zich op App Store en Google Play. [Store-uitrol](docs/mobile/STORE_RELEASE.md), [Apple-controle](docs/mobile/APPLE_REVIEW_CHECK.md) en [toestelacceptatie](docs/mobile/MOBILE_DEVICE_ACCEPTANCE.md) beschrijven de concrete voorbereiding en resterende stappen met eigen accounts en apparaten. Accountverwijdering, publieke privacy/supportpagina’s, moderatie en toestemming voor de actuele AI-provider zijn toegevoegd.
+
 ## Ontwikkelen
 
 Gebruik Node.js 22 of nieuwer en PostgreSQL 17. Installeer alle workspaces vanuit de repositoryroot:

@@ -15,6 +15,7 @@ import {
   KeyRound,
   RefreshCw,
 } from "lucide-react";
+import { BackupCheckPanel } from "./backup-check-panel";
 import type { SettingsApi, SettingsRow } from "./system-settings";
 
 type Row = SettingsRow;
@@ -63,10 +64,12 @@ export function BackupPanel({
   api,
   token,
   connectionRevision = 0,
+  onOpenIntegrations,
 }: {
   api: SettingsApi;
   token: string;
   connectionRevision?: number;
+  onOpenIntegrations?: () => void;
 }) {
   const [status, setStatus] = useState<Row | null>(null),
     [jobs, setJobs] = useState<Row[]>([]),
@@ -255,18 +258,99 @@ export function BackupPanel({
             </div>
             <div>
               <ArchiveRestore size={21} />
-              <small>Laatste back-up</small>
+              <small>Laatste geslaagde lokale back-up</small>
               <strong>
-                {status.lastBackup
-                  ? formatDate(
-                      status.lastBackup.completedAt ||
-                        status.lastBackup.createdAt ||
-                        status.lastBackup.manifest?.createdAt,
-                    )
-                  : "Nog geen back-up"}
+                {status.health?.lastLocalSuccess
+                  ? formatDate(status.health.lastLocalSuccess)
+                  : "Nog geen succesvolle back-up"}
               </strong>
             </div>
           </div>
+          <div className="backup-status-grid" style={{ marginTop: 12 }}>
+            <div>
+              <small>Laatste geslaagde OneDrive-upload</small>
+              <strong>
+                {status.health?.lastCloudSuccess
+                  ? formatDate(status.health.lastCloudSuccess)
+                  : "Nog geen bevestigde externe kopie"}
+              </strong>
+            </div>
+            <div>
+              <small>Laatste vastgelegde herstelcontrole</small>
+              <strong>
+                {status.health?.restoreCheck?.lastRecordedAt
+                  ? formatDate(status.health.restoreCheck.lastRecordedAt)
+                  : "Nog niet vastgelegd"}
+              </strong>
+              <small>
+                {status.health?.restoreCheck?.due
+                  ? "Controle is aan de beurt"
+                  : status.health?.restoreCheck?.dueAt
+                    ? "Volgende controle: " +
+                      formatDate(status.health.restoreCheck.dueAt)
+                    : "Herinnering uitgeschakeld"}
+              </small>
+            </div>
+          </div>
+          {(status.health?.alerts || []).map((alert: Row) => (
+            <div
+              key={alert.code}
+              role={alert.severity === "critical" ? "alert" : "status"}
+              className={
+                alert.severity === "critical" ? "alert error" : "alert"
+              }
+            >
+              <strong>{alert.title}</strong>
+              <p>{alert.message}</p>
+              {alert.action === "run_restore_check" && (
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    document
+                      .getElementById("backup-checks")
+                      ?.scrollIntoView({ behavior: "smooth" })
+                  }
+                >
+                  Naar herstelcontrole
+                </button>
+              )}
+              {alert.action === "open_onedrive" && (
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    onOpenIntegrations
+                      ? onOpenIntegrations()
+                      : setNotice(
+                          "Open Beheer → Integraties → OneDrive om de verbinding te controleren.",
+                        )
+                  }
+                >
+                  OneDrive-verbinding controleren
+                </button>
+              )}
+              {alert.action === "create_backup" && (
+                <button
+                  className="text-button"
+                  onClick={() =>
+                    document
+                      .getElementById("backup-create")
+                      ?.scrollIntoView({ behavior: "smooth" })
+                  }
+                >
+                  Naar back-up maken
+                </button>
+              )}
+            </div>
+          ))}
+          <p className="muted">
+            {(status.health?.storage || [])
+              .map(
+                (disk: Row) =>
+                  `${disk.scope === "archives" ? "Archiefopslag" : "Werkruimte"}: ${disk.availableBytes === null ? "niet gemeten" : size(disk.availableBytes) + " vrij"}`,
+              )
+              .join(" · ")}
+            . OneDrive-opslagquota wordt hier niet live gemeten.
+          </p>
           {!status.helper?.available && (
             <p className="alert">
               De back-updienst is nog niet gereed. Controleer in TrueNAS of de
@@ -383,6 +467,11 @@ export function BackupPanel({
                     backupRetentionDays: Number(f.get("backupRetentionDays")),
                     backupOneDriveEnabled:
                       f.get("backupOneDriveEnabled") === "on",
+                    backupRestoreCheckEnabled:
+                      f.get("backupRestoreCheckEnabled") === "on",
+                    backupRestoreCheckIntervalDays: Number(
+                      f.get("backupRestoreCheckIntervalDays"),
+                    ),
                   }),
                 );
                 await load();
@@ -435,6 +524,24 @@ export function BackupPanel({
               />{" "}
               Na iedere back-up ook een versleutelde kopie in OneDrive bewaren
             </label>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                name="backupRestoreCheckEnabled"
+                defaultChecked={config.backupRestoreCheckEnabled}
+              />
+              Herinner mij aan een periodieke herstelcontrole
+            </label>
+            <F label="Herstelcontrole iedere hoeveel dagen?">
+              <input
+                name="backupRestoreCheckIntervalDays"
+                type="number"
+                min={1}
+                max={3650}
+                required
+                defaultValue={config.backupRestoreCheckIntervalDays ?? 90}
+              />
+            </F>
             <button
               className="secondary"
               disabled={busy || !config.backupPassphraseConfigured}
@@ -444,6 +551,7 @@ export function BackupPanel({
           </form>
           <hr />
           <button
+            id="backup-create"
             className="primary"
             disabled={
               busy ||
@@ -468,6 +576,13 @@ export function BackupPanel({
           >
             Nu volledige back-up maken
           </button>
+          <BackupCheckPanel
+            api={api}
+            local={localArchives}
+            remote={remote}
+            onRecorded={load}
+            disabled={!status.helper?.available || !!status.activeJob}
+          />
           <h3 style={{ marginTop: 28 }}>Voortgang en geschiedenis</h3>
           {!jobs.length && (
             <p className="muted">

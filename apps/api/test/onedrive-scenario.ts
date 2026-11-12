@@ -13,6 +13,8 @@ import {
   downloadOneDriveBackup,
   listOneDriveBackups,
   OneDriveManifest,
+  probeOneDrive,
+  getOneDriveHealth,
 } from "../src/onedrive";
 const response = (value: any, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -44,6 +46,10 @@ const manifest: OneDriveManifest = {
   contents: ["database", "uploads", "exports", "config"],
   appVersion: "0.2.0",
 };
+let probeBody = "",
+  probeCreates = 0,
+  probeDeletes = 0,
+  badProbe = false;
 let authorization = "pending",
   tokenCalls = 0,
   uploaded = 0,
@@ -102,6 +108,25 @@ global.fetch = (async (input: any, init: RequestInit = {}) => {
   }
   if (url.includes("graph.microsoft.com") && url.includes("/items/app-root:/"))
     return response({ id: "backup-folder", folder: {} });
+  if (url.includes("graph.microsoft.com") && url.includes("tuinwerk-probe-")) {
+    if (method === "PUT") {
+      probeCreates++;
+      probeBody = String(init.body);
+      return response({ id: "probe-item" }, 201);
+    }
+    if (method === "DELETE") {
+      probeDeletes++;
+      return new Response(null, { status: 204 });
+    }
+    return new Response(badProbe ? "wrong" : probeBody);
+  }
+  if (
+    url === "https://graph.microsoft.com/v1.0/me/drive/items/probe-item" &&
+    method === "DELETE"
+  ) {
+    probeDeletes++;
+    return new Response(null, { status: 204 });
+  }
   if (
     url.includes("graph.microsoft.com") &&
     url.endsWith("/createUploadSession")
@@ -236,6 +261,14 @@ async function main() {
       await query<any>("SELECT secrets FROM system_settings WHERE id=1")
     )[0].secrets;
     assert.ok(!JSON.stringify(secrets).includes("PRIVATE_REFRESH_TOKEN"));
+    await probeOneDrive();
+    assert.equal(probeCreates, 1);
+    assert.equal(probeDeletes, 1);
+    badProbe = true;
+    await assert.rejects(() => probeOneDrive());
+    assert.equal(probeCreates, 2);
+    assert.equal(probeDeletes, 2);
+    badProbe = false;
     const path = join(process.env.ONEDRIVE_TEST_DIR!, manifest.archiveName);
     await writeFile(path, contents);
     const abort = new AbortController();

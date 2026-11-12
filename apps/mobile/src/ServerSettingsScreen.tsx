@@ -4,6 +4,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
 import { Session, authorizedRequest } from "./api";
+import { BackupChecks } from "./BackupChecks";
 import { settingsPatch, backupSettingsPayload } from "./settings-payload";
 import {
   NativeButton as Button,
@@ -110,8 +111,14 @@ const groups: Record<string, { title: string; fields: SettingField[] }> = {
     ],
   },
 };
-export function ServerSettingsScreen({ session }: { session: Session }) {
-  const [section, setSection] = useState("general"),
+export function ServerSettingsScreen({
+  session,
+  initialSection = "general",
+}: {
+  session: Session;
+  initialSection?: string;
+}) {
+  const [section, setSection] = useState(initialSection),
     [snapshot, setSnapshot] = useState<Row | null>(null),
     [values, setValues] = useState<Row>({}),
     [secretInputs, setSecretInputs] = useState<Record<string, string>>({}),
@@ -168,6 +175,7 @@ export function ServerSettingsScreen({ session }: { session: Session }) {
     setJobs(await authorizedRequest(session, "/admin/backups/jobs"));
     setArchives(await authorizedRequest(session, "/admin/backups/archives"));
   }
+  useEffect(() => setSection(initialSection), [initialSection]);
   useEffect(() => {
     void run(loadSettings);
     return () => {};
@@ -392,6 +400,71 @@ export function ServerSettingsScreen({ session }: { session: Session }) {
           {backup && (
             <>
               <View style={s.card}>
+                <Text style={s.title}>Laatste geslaagde lokale back-up</Text>
+                <Text>
+                  {backup.health?.lastLocalSuccess
+                    ? new Date(backup.health.lastLocalSuccess).toLocaleString(
+                        "nl-NL",
+                      )
+                    : "Nog geen succesvolle back-up"}
+                </Text>
+                <Text style={s.title}>Laatste geslaagde OneDrive-upload</Text>
+                <Text>
+                  {backup.health?.lastCloudSuccess
+                    ? new Date(backup.health.lastCloudSuccess).toLocaleString(
+                        "nl-NL",
+                      )
+                    : "Nog geen bevestigde externe kopie"}
+                </Text>
+                <Text>
+                  Laatste vastgelegde herstelcontrole:{" "}
+                  {backup.health?.restoreCheck?.lastRecordedAt
+                    ? new Date(
+                        backup.health.restoreCheck.lastRecordedAt,
+                      ).toLocaleString("nl-NL")
+                    : "Nog niet"}
+                </Text>
+                <Text>
+                  {backup.health?.restoreCheck?.due
+                    ? "Periodieke controle is aan de beurt."
+                    : backup.health?.restoreCheck?.dueAt
+                      ? "Volgende controle: " +
+                        new Date(
+                          backup.health.restoreCheck.dueAt,
+                        ).toLocaleDateString("nl-NL")
+                      : "Herinnering uitgeschakeld"}
+                </Text>
+              </View>
+              {(backup.health?.alerts || []).map((alert: Row) => (
+                <View style={s.card} key={alert.code}>
+                  <Text
+                    accessibilityRole={
+                      alert.severity === "critical" ? "alert" : undefined
+                    }
+                    style={alert.severity === "critical" ? s.error : s.title}
+                  >
+                    {alert.title}
+                  </Text>
+                  <Text>{alert.message}</Text>
+                  {alert.action === "open_onedrive" && (
+                    <Button
+                      label="OneDrive-verbinding controleren"
+                      onPress={() => setSection("onedrive")}
+                    />
+                  )}
+                </View>
+              ))}
+              {(backup.health?.storage || []).map((disk: Row) => (
+                <Text key={disk.scope}>
+                  {disk.scope === "archives" ? "Archiefopslag" : "Werkruimte"}:{" "}
+                  {disk.availableBytes === null
+                    ? "Niet gemeten"
+                    : (disk.availableBytes / 1024 / 1024 / 1024).toFixed(1) +
+                      " GB vrij"}
+                </Text>
+              ))}
+              <Text>OneDrive-opslagquota wordt hier niet live gemeten.</Text>
+              <View style={s.card}>
                 <Text>
                   Back-upservice:{" "}
                   {backup.helper?.available ? "Bereikbaar" : "Niet bereikbaar"}
@@ -406,7 +479,7 @@ export function ServerSettingsScreen({ session }: { session: Session }) {
                     : "Nog niet ingesteld"}
                 </Text>
                 <Text>
-                  Laatste back-up:{" "}
+                  Laatste poging (niet noodzakelijk geslaagd):{" "}
                   {backup.lastBackup?.createdAt ||
                     backup.lastBackup?.completedAt ||
                     "Nog geen"}
@@ -453,6 +526,28 @@ export function ServerSettingsScreen({ session }: { session: Session }) {
                   setBackupConfig({
                     ...backupConfig,
                     backupOneDriveEnabled: !backupConfig.backupOneDriveEnabled,
+                  })
+                }
+              />
+              <Button
+                label={`${backupConfig.backupRestoreCheckEnabled ? "✓ " : ""}Herinner mij aan een periodieke herstelcontrole`}
+                onPress={() =>
+                  setBackupConfig({
+                    ...backupConfig,
+                    backupRestoreCheckEnabled:
+                      !backupConfig.backupRestoreCheckEnabled,
+                  })
+                }
+              />
+              <Field
+                label="Herstelcontrole iedere hoeveel dagen?"
+                value={String(
+                  backupConfig.backupRestoreCheckIntervalDays ?? 90,
+                )}
+                onChange={(value) =>
+                  setBackupConfig({
+                    ...backupConfig,
+                    backupRestoreCheckIntervalDays: value,
                   })
                 }
               />
@@ -588,6 +683,13 @@ export function ServerSettingsScreen({ session }: { session: Session }) {
               />
             </View>
           ))}
+          <BackupChecks
+            session={session}
+            local={archives}
+            remote={remoteArchives}
+            onRecorded={loadBackup}
+            disabled={!backup?.helper?.available || !!backup?.activeJob}
+          />
           <Text style={s.title}>Archieven en herstel</Text>
           <Button
             disabled={busy}
@@ -629,7 +731,8 @@ export function ServerSettingsScreen({ session }: { session: Session }) {
                         : 0,
                     ),
                 );
-                let response: FileSystem.FileSystemUploadResult | null | undefined;
+                let response:
+                  FileSystem.FileSystemUploadResult | null | undefined;
                 try {
                   response = await task.uploadAsync();
                 } finally {

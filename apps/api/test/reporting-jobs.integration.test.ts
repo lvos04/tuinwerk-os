@@ -121,9 +121,36 @@ test(
           }),
         };
       }) as any;
+      const disclosed = api.aiStatus();
+      assert.equal(disclosed.providerOrigin, "https://example.test");
+      assert.deepEqual(disclosed.sharedFields, ["ingevoerde tekst"]);
+      await assert.rejects(
+        () => api.suggest(user, { text: "Pomp lekt", consent: true }),
+        /opnieuw toestemming/,
+      );
+      process.env.AI_BASE_URL = "https://changed.example.test/v1";
+      await assert.rejects(
+        () =>
+          api.suggest(user, {
+            text: "Pomp lekt",
+            consent: true,
+            providerConfigId: disclosed.providerConfigId,
+          }),
+        /opnieuw toestemming/,
+      );
+      assert.equal(calls, 0);
+      process.env.AI_BASE_URL = "https://example.test/v1";
       const results = await Promise.allSettled([
-        api.suggest(user, { text: "Pomp lekt", consent: true }),
-        api.suggest(user, { text: "Pomp lekt", consent: true }),
+        api.suggest(user, {
+          text: "Pomp lekt",
+          consent: true,
+          providerConfigId: api.aiStatus().providerConfigId,
+        }),
+        api.suggest(user, {
+          text: "Pomp lekt",
+          consent: true,
+          providerConfigId: api.aiStatus().providerConfigId,
+        }),
       ]);
       assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
       assert.equal(calls, 1);

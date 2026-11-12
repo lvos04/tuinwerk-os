@@ -75,9 +75,95 @@ export function ConflictEditor({
                 {names[key] || key}: {String(value ?? "")}
               </Text>
             ))}
+          {Array.isArray(current.assignedTo) &&
+            Array.isArray(payload.assignedTo) && (
+              <View style={s.card}>
+                <Text style={s.label}>Toewijzing vergelijken</Text>
+                <Text>
+                  Op de server:{" "}
+                  {current.assignedTo
+                    .map(
+                      (id: string) =>
+                        (catalogs.users || []).find((user) => user.id === id)
+                          ?.name || id,
+                    )
+                    .join(", ") || "Niemand"}
+                </Text>
+                <Text>
+                  Jouw concept:{" "}
+                  {payload.assignedTo
+                    .map(
+                      (id: string) =>
+                        (catalogs.users || []).find((user) => user.id === id)
+                          ?.name || id,
+                    )
+                    .join(", ") || "Niemand"}
+                </Text>
+                <Button
+                  label="Toewijzing van server behouden"
+                  onPress={() => set("assignedTo", current.assignedTo)}
+                />
+              </View>
+            )}
+          {Array.isArray(current.checklist) &&
+            Array.isArray(payload.checklist) && (
+              <View style={s.card}>
+                <Text style={s.label}>Checklist vergelijken</Text>
+                <Text style={s.label}>Op de server</Text>
+                {current.checklist.map((line: Row, index: number) => (
+                  <Text key={line.id || index}>
+                    {line.done ? "☑" : "☐"} {line.text}
+                    {line.completedAt
+                      ? " · " +
+                        new Date(line.completedAt).toLocaleString("nl-NL")
+                      : ""}
+                  </Text>
+                ))}
+                <Text style={s.label}>Jouw concept</Text>
+                {payload.checklist.map((line: Row, index: number) => (
+                  <Text key={line.id || index}>
+                    {line.done ? "☑" : "☐"} {line.text}
+                  </Text>
+                ))}
+                <Button
+                  label="Checklist van server behouden"
+                  onPress={() => set("checklist", current.checklist)}
+                />
+              </View>
+            )}
+          {Array.isArray(current.dependencies) &&
+            Array.isArray(payload.dependencies) && (
+              <View style={s.card}>
+                <Text style={s.label}>Afhankelijkheden vergelijken</Text>
+                <Text>
+                  Server:{" "}
+                  {current.dependencies
+                    .map(
+                      (id: string) =>
+                        (catalogs.tasks || []).find((task) => task.id === id)
+                          ?.title || id,
+                    )
+                    .join(", ") || "Geen"}
+                </Text>
+                <Text>
+                  Concept:{" "}
+                  {payload.dependencies
+                    .map(
+                      (id: string) =>
+                        (catalogs.tasks || []).find((task) => task.id === id)
+                          ?.title || id,
+                    )
+                    .join(", ") || "Geen"}
+                </Text>
+                <Button
+                  label="Afhankelijkheden van server behouden"
+                  onPress={() => set("dependencies", current.dependencies)}
+                />
+              </View>
+            )}
           {typeof current.version === "number" && (
             <Button
-              label={`Na controle serverversie ${current.version} gebruiken`}
+              label={`Gekozen velden bevestigen op serverversie ${current.version}`}
               onPress={() => set("version", current.version)}
             />
           )}

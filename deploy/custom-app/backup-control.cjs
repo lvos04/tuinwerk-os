@@ -194,6 +194,26 @@ async function snapshot(dir) {
   await run("sync", ["-f", ROOT]);
 }
 
+async function verifyDatabaseDump(file) {
+  await new Promise((resolve, reject) => {
+    const child = spawn("pg_restore", ["--list", file], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(Error("Databasecontrole duurde te lang"));
+    }, 120000);
+    child.once("error", () => {
+      clearTimeout(timer);
+      reject(Error("Databasearchief kon niet worden gecontroleerd"));
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(Error("Databasearchief is ongeldig of niet ondersteund"));
+    });
+  });
+}
 async function unpack(archive, secret, work) {
   const tar = path.join(work, "archive.tar");
   await decrypt(archive, tar, secret);
@@ -215,6 +235,7 @@ async function unpack(archive, secret, work) {
     (await hash(path.join(work, "files.tar"))) !== m.filesSha256
   )
     throw Error("Controlesom van back-up klopt niet");
+  await verifyDatabaseDump(path.join(work, "database.dump"));
   await run("python3", [
     "/opt/tuinwerk/extract-safe.py",
     "files-v2",
@@ -388,7 +409,7 @@ async function processJob(requestFile) {
           id: r.archive.slice(0, -4),
           createdAt: new Date().toISOString(),
           contents: ["database", "uploads", "exports", "config"],
-          appVersion: process.env.APP_VERSION || "0.1.0",
+          appVersion: process.env.APP_VERSION || "0.2.0",
           manifestVersion: 1,
           databaseSha256: await hash(path.join(work, "database.dump")),
           filesSha256: await hash(path.join(work, "files.tar")),

@@ -1,15 +1,53 @@
 {
-  "cli": { "version": ">=16.0.0", "appVersionSource": "local" },
+  "cli": {
+    "version": "27.7.2",
+    "appVersionSource": "remote"
+  },
   "build": {
-    "development": { "developmentClient": true, "distribution": "internal" },
-    "preview": {
-      "distribution": "internal",
-      "android": { "buildType": "apk" }
-    },
     "production": {
+      "environment": "production",
+      "distribution": "store",
       "autoIncrement": true,
-      "android": { "buildType": "app-bundle" }
+      "credentialsSource": "remote",
+      "android": {
+        "buildType": "app-bundle",
+        "image": "ubuntu-24.04-jdk-17-ndk-r27b"
+      },
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0",
+        "simulator": false
+      }
+    },
+    "android-apk": {
+      "extends": "production",
+      "environment": "preview",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "extends": "android-apk"
+    },
+    "testflight": {
+      "extends": "production"
+    },
+    "simulator": {
+      "extends": "production",
+      "environment": "preview",
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      },
+      "ios": {}
+    }
+  }
 }

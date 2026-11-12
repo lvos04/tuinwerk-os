@@ -1,4 +1,5 @@
 "use client";
+import { ReportContent } from "./moderation";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 type Row = Record<string, any>;
 type Api = (path: string, options?: RequestInit) => Promise<any>;
@@ -37,6 +38,7 @@ export function AdvancedTools({
   locations,
   users,
   reload,
+  onlyTab,
 }: {
   page: string;
   api: Api;
@@ -48,6 +50,7 @@ export function AdvancedTools({
   locations: Row[];
   users: Row[];
   reload: () => Promise<void>;
+  onlyTab?: string;
 }) {
   const tabs: Record<string, string> =
     page === "tasks"
@@ -70,7 +73,7 @@ export function AdvancedTools({
                   users: "Accounts bewerken",
                 }
               : { templates: "Taaksjablonen", ai: "AI-voorstel" };
-  const [tab, setTab] = useState(Object.keys(tabs)[0]),
+  const [tab, setTab] = useState(onlyTab || Object.keys(tabs)[0]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -131,15 +134,17 @@ export function AdvancedTools({
   return (
     <>
       <div className="tabs" style={{ marginBottom: 22, flexWrap: "wrap" }}>
-        {Object.entries(tabs).map(([id, l]) => (
-          <button
-            key={id}
-            className={tab === id ? "active" : ""}
-            onClick={() => setTab(id)}
-          >
-            {l}
-          </button>
-        ))}
+        {Object.entries(tabs)
+          .filter(([id]) => !onlyTab || id === onlyTab)
+          .map(([id, l]) => (
+            <button
+              key={id}
+              className={tab === id ? "active" : ""}
+              onClick={() => setTab(id)}
+            >
+              {l}
+            </button>
+          ))}
       </div>
       {error && (
         <div className="alert error" role="alert">
@@ -264,19 +269,30 @@ export function AdvancedTools({
           </p>
           <div className="alert">
             {aiStatus?.enabled
-              ? "Provider: " + aiStatus.provider + " · " + aiStatus.model
-              : "AI is uitgeschakeld. De beheerder kan de provider, sleutel en budgetten instellen via Beheer → Instellingen → Optionele AI-assistent."}
+              ? "Provider: " + aiStatus.providerOrigin + " · " + aiStatus.model
+              : "AI is uitgeschakeld. De beheerder kan de provider, sleutel en budgetten instellen via Beheer → Integraties → Optionele AI-assistent."}
           </div>
           <form
             onSubmit={(e) =>
               submit(e, async (f) => {
-                const r = await api(
-                  "/ai/suggest",
-                  json("POST", {
-                    text: f.get("text"),
-                    consent: f.get("consent") === "on",
-                  }),
+                const checkbox = document.querySelector<HTMLInputElement>(
+                  'input[name="consent"]',
                 );
+                if (checkbox) checkbox.checked = false;
+                let r;
+                try {
+                  r = await api(
+                    "/ai/suggest",
+                    json("POST", {
+                      text: f.get("text"),
+                      consent: f.get("consent") === "on",
+                      providerConfigId: aiStatus?.providerConfigId,
+                    }),
+                  );
+                } catch (error) {
+                  setAiStatus(await api("/ai/status"));
+                  throw error;
+                }
                 setSuggestion(r.suggestion);
               })
             }
@@ -1396,6 +1412,7 @@ export function MediaGallery({
             <button className="text-button" onClick={() => void file(a, false)}>
               Download
             </button>
+            <ReportContent api={api} type="attachment" id={a.id} />
           </div>
         ))}
       </div>

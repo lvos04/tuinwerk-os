@@ -211,6 +211,111 @@ test(
         403,
       );
       assert.equal(
+        (await call("/admin/backups/restore-checks", tokens.employee)).status,
+        403,
+      );
+      const drillResponse = await call(
+        "/admin/backups/restore-checks",
+        tokens.admin,
+        {
+          archiveId: job.archiveId,
+          source: "local",
+          recoverySecret: recovery.passphrase,
+        },
+      );
+      assert.equal(drillResponse.status, 201);
+      const drill = (await drillResponse.json()) as any;
+      const recordBody = {
+        version: drill.version,
+        taskChecked: true,
+        fileChecked: true,
+        taskReference: "Testtaak pomp 2",
+        fileReference: "pomp-controle.jpg",
+        notes: "Beheerder bevestigt aparte testinstallatie",
+      };
+      assert.equal(
+        (
+          await call(
+            "/admin/backups/restore-checks/" + drill.id + "/record",
+            tokens.admin,
+            recordBody,
+          )
+        ).status,
+        400,
+        "no operator record before successful technical check",
+      );
+      await respond({ id: drill.jobId }, "restore_preview", {
+        previewId: drill.jobId,
+      });
+      const technical = (await (
+        await call("/admin/backups/restore-checks", tokens.admin)
+      ).json()) as any[];
+      const technicalRow = technical.find((row) => row.id === drill.id);
+      assert.equal(technicalRow.technicalState, "completed");
+      assert.equal(
+        technicalRow.recordedAt,
+        null,
+        "technical preview alone is not a recorded restore proof",
+      );
+      assert.equal(technicalRow.canRecord, true);
+      assert.equal(
+        (
+          await call(
+            "/admin/backups/restore-checks/" + drill.id + "/record",
+            tokens.admin,
+            { ...recordBody, fileChecked: false },
+          )
+        ).status,
+        400,
+      );
+      const recordedResponse = await call(
+        "/admin/backups/restore-checks/" + drill.id + "/record",
+        tokens.admin,
+        recordBody,
+      );
+      assert.equal(recordedResponse.status, 201);
+      const recorded = (await recordedResponse.json()) as any;
+      assert.ok(recorded.recordedAt);
+      assert.equal(recorded.productionRestorePerformed, false);
+      assert.equal(
+        (
+          await call(
+            "/admin/backups/restore-checks/" + drill.id + "/record",
+            tokens.admin,
+            recordBody,
+          )
+        ).status,
+        201,
+        "same record retry is idempotent",
+      );
+      assert.equal(
+        (
+          await call(
+            "/admin/backups/restore-checks/" + drill.id + "/record",
+            tokens.admin,
+            { ...recordBody, taskReference: "Andere taak" },
+          )
+        ).status,
+        409,
+        "immutable audit record",
+      );
+      const proofAudit = await query(
+        "SELECT * FROM audit_events WHERE entity_type='backup_check' AND entity_id=$1 AND action='operator_checks_recorded'",
+        [drill.id],
+      );
+      assert.equal(proofAudit.length, 1);
+      assert.equal(proofAudit[0].details.productionRestorePerformed, false);
+      assert.equal(
+        (
+          await query(
+            "SELECT id FROM backup_jobs WHERE operation='restore' AND requested_by=$1",
+            [actors[0]],
+          )
+        ).length,
+        0,
+        "periodic checks do not queue a destructive restore",
+      );
+      assert.equal(
         (
           await call("/admin/backups/restore-preview", tokens.admin, {
             archiveId: job.archiveId,
@@ -312,6 +417,10 @@ test(
         [remoteJob.id],
       );
     } finally {
+      await query(
+        "DELETE FROM backup_restore_checks WHERE requested_by=ANY($1::uuid[])",
+        [actors],
+      );
       await query(
         "DELETE FROM backup_archives WHERE id IN (SELECT archive_id FROM backup_jobs WHERE requested_by=ANY($1::uuid[]))",
         [actors],

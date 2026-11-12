@@ -1,3 +1,4 @@
+import { moderateText } from "./moderation";
 import {
   BadRequestException,
   Body,
@@ -60,6 +61,34 @@ export async function idempotent<T>(
           throw new ConflictException(
             "Operatie-ID is al gebruikt voor andere gegevens",
           );
+        if (old.response?.id) {
+          let blocked = false;
+          if (route.startsWith("tasks:"))
+            blocked = !!(
+              await c.query(
+                "SELECT 1 FROM tasks WHERE id=$1 AND moderation_hidden",
+                [old.response.id],
+              )
+            ).rowCount;
+          if (route.startsWith("comment:"))
+            blocked = !!(
+              await c.query(
+                "SELECT 1 FROM task_comments c JOIN tasks t ON t.id=c.task_id WHERE c.id=$1 AND (c.moderation_hidden OR t.moderation_hidden)",
+                [old.response.id],
+              )
+            ).rowCount;
+          if (
+            route.startsWith("attachments:") ||
+            route.startsWith("annotation:")
+          )
+            blocked = !!(
+              await c.query(
+                "SELECT 1 FROM attachments a LEFT JOIN tasks t ON t.id=a.task_id WHERE a.id=$1 AND (a.moderation_hidden OR coalesce(t.moderation_hidden,false))",
+                [old.response.id],
+              )
+            ).rowCount;
+          if (blocked) throw new NotFoundException("Inhoud niet beschikbaar");
+        }
         return old.response;
       }
     }
@@ -181,7 +210,7 @@ async function references(c: PoolClient, b: any) {
   }
   if (b.dependencies?.length) {
     const { rowCount } = await c.query(
-      "SELECT id FROM tasks WHERE id=ANY($1::uuid[]) FOR SHARE",
+      "SELECT id FROM tasks WHERE id=ANY($1::uuid[]) AND NOT moderation_hidden FOR SHARE",
       [b.dependencies],
     );
     if (rowCount !== b.dependencies.length)
@@ -193,7 +222,7 @@ async function references(c: PoolClient, b: any) {
 export class TasksController {
   @Get() async list(@Query() q: any) {
     const args: any[] = [];
-    const where: string[] = [];
+    const where: string[] = ["moderation_hidden=false"];
     const add = (s: string, v: any) => {
       args.push(v);
       where.push(s.replace("?", `$${args.length}`));
@@ -225,12 +254,25 @@ export class TasksController {
     );
   }
   @Get(":id") async detail(@Param("id") id: string) {
-    const [t] = await query("SELECT * FROM tasks WHERE id=$1", [uuid(id)]);
+    const [t] = await query(
+      "SELECT * FROM tasks WHERE id=$1 AND NOT moderation_hidden",
+      [uuid(id)],
+    );
     if (!t) throw new NotFoundException("Taak niet gevonden");
     return camel(t);
   }
   @Post() async create(@CurrentUser() u: User, @Body() b: any) {
     const v = validateTask(b);
+    await moderateText(
+      [
+        v.title,
+        v.description,
+        b.reason,
+        ...(v.checklist || []).map((line: any) => line.text),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
     text(v.title, "Titel", 300);
     return idempotent(u, b, "tasks:create", async (c) => {
       await references(c, v);
@@ -269,13 +311,26 @@ export class TasksController {
   ) {
     uuid(id);
     const v = validateTask(b);
+    await moderateText(
+      [
+        v.title,
+        v.description,
+        b.reason,
+        ...(v.checklist || []).map((line: any) => line.text),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
     return idempotent(u, b, "tasks:" + id, async (c) => {
       if (v.dependencies)
         await c.query(
           "SELECT pg_advisory_xact_lock(hashtext('task-dependencies'))",
         );
       const [old] = (
-        await c.query("SELECT * FROM tasks WHERE id=$1 FOR UPDATE", [id])
+        await c.query(
+          "SELECT * FROM tasks WHERE id=$1 AND NOT moderation_hidden FOR UPDATE",
+          [id],
+        )
       ).rows;
       if (!old) throw new NotFoundException("Taak niet gevonden");
       if (b.version !== old.version)
@@ -356,6 +411,7 @@ export class TasksController {
     });
   }
   @Get(":id/history") async history(@Param("id") id: string) {
+    await this.detail(id);
     return camel(
       await query(
         "SELECT * FROM audit_events WHERE entity_type='task' AND entity_id=$1 ORDER BY created_at",
@@ -364,9 +420,10 @@ export class TasksController {
     );
   }
   @Get(":id/comments") async comments(@Param("id") id: string) {
+    await this.detail(id);
     return camel(
       await query(
-        "SELECT c.*,u.name AS author FROM task_comments c JOIN users u ON u.id=c.user_id WHERE task_id=$1 ORDER BY created_at",
+        "SELECT c.*,u.name AS author FROM task_comments c JOIN users u ON u.id=c.user_id WHERE task_id=$1 AND NOT c.moderation_hidden ORDER BY created_at",
         [uuid(id)],
       ),
     );
@@ -378,7 +435,17 @@ export class TasksController {
   ) {
     uuid(id);
     text(b.body, "Reactie", 10000);
+    await moderateText(b.body);
     return idempotent(u, b, "comment:" + id, async (c) => {
+      if (
+        !(
+          await c.query(
+            "SELECT 1 FROM tasks WHERE id=$1 AND NOT moderation_hidden FOR SHARE",
+            [id],
+          )
+        ).rowCount
+      )
+        throw new NotFoundException();
       const [row] = (
         await c.query(
           "INSERT INTO task_comments(task_id,user_id,body) VALUES($1,$2,$3) RETURNING *",
@@ -403,6 +470,7 @@ export class TasksController {
     });
   }
   @Get(":id/time") async times(@Param("id") id: string) {
+    await this.detail(id);
     return camel(
       await query(
         "SELECT t.*,u.name FROM time_entries t JOIN users u ON u.id=t.user_id WHERE task_id=$1 ORDER BY started_at DESC",
@@ -416,6 +484,8 @@ export class TasksController {
     @Body() b: any,
   ) {
     uuid(id);
+    await this.detail(id);
+    await moderateText(b.note);
     const start = b.startedAt || new Date().toISOString();
     date(start);
     if (b.endedAt) date(b.endedAt);
@@ -651,17 +721,18 @@ export class AssetsController {
     ]);
   }
   @Get(":id/history") async history(@Param("id") id: string) {
+    await this.detail(id);
     uuid(id);
     return {
       tasks: camel(
         await query(
-          "SELECT * FROM tasks WHERE asset_id=$1 ORDER BY created_at DESC",
+          "SELECT * FROM tasks WHERE asset_id=$1 AND NOT moderation_hidden ORDER BY created_at DESC",
           [id],
         ),
       ),
       parts: camel(
         await query(
-          "SELECT m.*,i.name AS item_name FROM inventory_movements m JOIN tasks t ON t.id=m.task_id JOIN inventory_items i ON i.id=m.item_id WHERE t.asset_id=$1 ORDER BY m.created_at DESC",
+          "SELECT m.*,i.name AS item_name FROM inventory_movements m JOIN tasks t ON t.id=m.task_id JOIN inventory_items i ON i.id=m.item_id WHERE t.asset_id=$1 AND NOT t.moderation_hidden ORDER BY m.created_at DESC",
           [id],
         ),
       ),
@@ -755,7 +826,12 @@ export class SchedulesController {
           message: "Planning gewijzigd",
           current: camel(old),
         });
-      if (old.shared && old.user_id !== u.id && !b.confirmShared)
+      if (
+        old.shared &&
+        (old.user_id !== u.id ||
+          old.participants.some((id: string) => id !== u.id)) &&
+        b.confirmShared !== true
+      )
         throw new BadRequestException(
           "Bevestig de wijziging van gedeelde planning",
         );
@@ -804,7 +880,9 @@ export class SchedulesController {
           c,
           [old.user_id, ...old.participants, ...r.participants],
           "planning",
-          "Gedeelde planning gewijzigd: " + r.title,
+          r.shared
+            ? "Gedeelde planning gewijzigd: " + r.title
+            : "Afspraak wordt niet langer gedeeld",
           id,
         );
       return camel(r);

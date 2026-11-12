@@ -24,16 +24,14 @@ test.describe("eerste installatie en instellingen op echte API", () => {
       .click();
     await expect(
       page.getByRole("heading", {
-        name: "Instellingen van je werkomgeving",
-        exact: true,
+        name: /^(Instellingen van je werkomgeving|Koppelingen instellen)$/,
       }),
     ).toBeVisible();
   };
   const settingsPanel = (page: Page) =>
     page.locator("section.system-section").filter({
       has: page.getByRole("heading", {
-        name: "Instellingen van je werkomgeving",
-        exact: true,
+        name: /^(Instellingen van je werkomgeving|Koppelingen instellen)$/,
       }),
     });
   const backupPanel = (page: Page) =>
@@ -134,6 +132,7 @@ test.describe("eerste installatie en instellingen op echte API", () => {
     await expect(panel.getByLabel("Bedrijfsnaam", { exact: true })).toHaveValue(
       "Acceptatietuin opgeslagen",
     );
+    await page.getByRole("tab", { name: "Integraties", exact: true }).click();
     await panel
       .getByRole("button", { name: "E-mailmeldingen", exact: true })
       .click();
@@ -177,6 +176,7 @@ test.describe("eerste installatie en instellingen op echte API", () => {
     page,
   }) => {
     await login(page);
+    await page.getByRole("tab", { name: "Back-ups", exact: true }).click();
     const panel = backupPanel(page);
     const scheduleWasEnabled = await panel
       .getByLabel("Dagelijks een volledige back-up maken")
@@ -219,9 +219,9 @@ test.describe("eerste installatie en instellingen op echte API", () => {
     const response = await save;
     expect(response.status()).toBe(200);
     expect((await response.json()).backupPassphraseConfigured).toBe(true);
-    await expect(panel.getByRole("status")).toContainText(
-      "Versleuteling ingesteld",
-    );
+    await expect(
+      panel.getByText("Versleuteling ingesteld.", { exact: false }),
+    ).toContainText("Versleuteling ingesteld");
     await expect(
       panel.getByLabel("Dagelijks een volledige back-up maken"),
     ).toBeChecked({ checked: scheduleWasEnabled });
@@ -232,6 +232,7 @@ test.describe("eerste installatie en instellingen op echte API", () => {
     page,
   }) => {
     await login(page);
+    await page.getByRole("tab", { name: "Integraties", exact: true }).click();
     const panel = page.locator("section.system-section").filter({
       has: page.getByRole("heading", {
         name: "OneDrive als externe back-up",
@@ -264,6 +265,7 @@ test.describe("eerste installatie en instellingen op echte API", () => {
       .getByRole("navigation")
       .getByRole("button", { name: "Beheer", exact: true })
       .click();
+    await page.getByRole("tab", { name: "Integraties", exact: true }).click();
     await expect(panel.getByLabel(/Microsoft-toepassings-id/)).toHaveValue(
       clientId,
     );

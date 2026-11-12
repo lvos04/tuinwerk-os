@@ -192,7 +192,7 @@ export async function bookMovement(userId: string, input: any) {
     if (taskId) {
       const task = (
         await c.query(
-          "SELECT id FROM tasks WHERE id=$1 AND status NOT IN ('archived','cancelled') FOR SHARE",
+          "SELECT id FROM tasks WHERE id=$1 AND NOT moderation_hidden AND status NOT IN ('archived','cancelled') FOR SHARE",
           [taskId],
         )
       ).rows[0];

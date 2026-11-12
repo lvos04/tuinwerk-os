@@ -19,8 +19,11 @@ with tarfile.open(source, 'r:') as archive:
             raise SystemExit('Unexpected data directory')
     if kind == 'files-v2':
         names = {str(pathlib.PurePosixPath(member.name)) for member in members if member.isfile()}
-        if 'config/settings.key' not in names:
-            raise SystemExit('Backup is missing the protected settings key')
+        directories = {str(pathlib.PurePosixPath(member.name)) for member in members if member.isdir()}
+        if not {'uploads', 'exports', 'config'}.issubset(directories):
+            raise SystemExit('Backup is missing a required data directory')
+        if not {'config/settings.key', 'config/totp.key'}.issubset(names):
+            raise SystemExit('Backup is missing protected settings or authentication keys')
     if destination != '--check':
         # All entries are validated regular files/directories in an operator-owned target.
         archive.extractall(destination, members=members)

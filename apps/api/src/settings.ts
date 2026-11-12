@@ -47,6 +47,9 @@ type Definition = {
 };
 export const settingDefinitions: Record<string, Definition> = {
   companyName: { default: "TuinWerk", kind: "string", max: 120 },
+  supportEmail: { default: "", kind: "string", max: 320 },
+  privacyContactEmail: { default: "", kind: "string", max: 320 },
+  privacyRetentionDescription: { default: "", kind: "string", max: 3000 },
   appUrl: { env: "APP_URL", default: "", kind: "url" },
   corsOrigins: { env: "CORS_ORIGINS", default: [], kind: "origins" },
   appTimezone: {
@@ -112,6 +115,13 @@ export const settingDefinitions: Record<string, Definition> = {
     min: 0,
     max: 366,
   },
+  backupRestoreCheckEnabled: { default: true, kind: "boolean" },
+  backupRestoreCheckIntervalDays: {
+    default: 90,
+    kind: "integer",
+    min: 1,
+    max: 3650,
+  },
   backupEnabled: { default: false, kind: "boolean" },
   backupHour: { default: 2, kind: "integer", min: 0, max: 23 },
   backupRetentionDays: { default: 30, kind: "integer", min: 1, max: 3650 },
@@ -131,6 +141,8 @@ const secretEnvs: Record<string, string | undefined> = {
 const internalKeys = new Set([
   "oneDriveRefreshToken",
   "backupPassphrase",
+  "backupRestoreCheckEnabled",
+  "backupRestoreCheckIntervalDays",
   "backupEnabled",
   "backupHour",
   "backupRetentionDays",
@@ -189,7 +201,7 @@ function validate(key: string, value: any) {
     if (
       typeof value !== "string" ||
       value.length > (d.max ?? 2000) ||
-      /[\r\n\0]/.test(value)
+      (key === "privacyRetentionDescription" ? /\0/ : /[\r\n\0]/).test(value)
     )
       throw new BadRequestException(`${key}: ongeldige tekst`);
     if (d.kind === "url" && value) {
@@ -207,6 +219,12 @@ function validate(key: string, value: any) {
   }
   if (key === "smtpHost" && value && !/^[a-zA-Z0-9.:-]+$/.test(value))
     throw new BadRequestException("SMTP-host bevat ongeldige tekens");
+  if (
+    ["supportEmail", "privacyContactEmail"].includes(key) &&
+    value &&
+    !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value)
+  )
+    throw new BadRequestException("Vul een geldig openbaar contactadres in");
   if (
     key === "oneDriveFolder" &&
     (!value.trim() ||

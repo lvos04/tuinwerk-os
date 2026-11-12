@@ -27,6 +27,7 @@ import {
   readFile,
   readdir,
   rename,
+  statfs,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -48,6 +49,8 @@ const configKeys = [
   "appTimezone",
   "backupRetentionDays",
   "backupOneDriveEnabled",
+  "backupRestoreCheckEnabled",
+  "backupRestoreCheckIntervalDays",
 ];
 const control = () =>
   resolve(process.env.BACKUP_CONTROL_DIR || "/data/control");
@@ -451,9 +454,236 @@ async function processRemoteUploads() {
     );
   }
 }
+export function assessBackupHealth(input: any, now = new Date()) {
+  const alerts: any[] = [];
+  const add = (
+    code: string,
+    severity: string,
+    title: string,
+    message: string,
+    action: string,
+  ) => alerts.push({ code, severity, title, message, action });
+  const lastLocalSuccess = input.lastLocalSuccess || null;
+  const lastCloudSuccess = input.cloud?.lastSuccessfulTransfer || null;
+  const localOverdue =
+    !!input.config.backupEnabled &&
+    (!lastLocalSuccess ||
+      now.getTime() - Date.parse(lastLocalSuccess) > 36 * 3600000);
+  if (!input.helper.available)
+    add(
+      "helper_unavailable",
+      "critical",
+      "Back-updienst niet bereikbaar",
+      "Controleer of de volledige TuinWerk-app in TrueNAS draait en vernieuw daarna de status.",
+      "check_service",
+    );
+  if (!input.config.backupEnabled)
+    add(
+      "schedule_disabled",
+      "info",
+      "Dagelijkse back-up staat uit",
+      "Schakel dagelijkse back-ups in nadat je de herstelsleutel buiten de NAS hebt bewaard.",
+      "configure_backup",
+    );
+  if (localOverdue)
+    add(
+      "local_overdue",
+      "critical",
+      "Lokale back-up ontbreekt of is te oud",
+      "Er is geen succesvolle lokale back-up van de afgelopen 36 uur. Start nu een back-up en controleer de uitkomst.",
+      "create_backup",
+    );
+  if (input.lastJob?.state === "failed")
+    add(
+      "backup_failed",
+      "critical",
+      "Laatste back-uppoging mislukt",
+      input.lastJob.error ||
+        "Bekijk de jobgeschiedenis, herstel de oorzaak en start opnieuw.",
+      "create_backup",
+    );
+  if (
+    input.config.backupOneDriveEnabled &&
+    input.cloud?.reauthenticationRequired
+  )
+    add(
+      "cloud_permission_expired",
+      "critical",
+      "OneDrive opnieuw verbinden",
+      "De laatste providerreactie geeft aan dat toestemming niet meer geldig is. Verbind het OneDrive-account opnieuw bij Integraties.",
+      "open_onedrive",
+    );
+  else if (input.config.backupOneDriveEnabled && !input.cloud?.connected)
+    add(
+      "cloud_disconnected",
+      "warning",
+      "OneDrive is niet verbonden",
+      "Verbind je OneDrive-account om weer externe kopieën te kunnen maken.",
+      "open_onedrive",
+    );
+  if (
+    input.config.backupOneDriveEnabled &&
+    (!lastCloudSuccess ||
+      now.getTime() - Date.parse(lastCloudSuccess) > 36 * 3600000)
+  )
+    add(
+      "cloud_overdue",
+      "warning",
+      "Externe kopie ontbreekt of is te oud",
+      "De laatste bevestigde upload is ouder dan 36 uur of ontbreekt. Controleer de verbinding en bied de lokale back-up opnieuw aan.",
+      "open_onedrive",
+    );
+  if (input.lastJob?.remoteState === "failed")
+    add(
+      "cloud_upload_failed",
+      "warning",
+      "OneDrive-kopie mislukt",
+      "De lokale back-up blijft beschikbaar. Controleer de verbinding en gebruik OneDrive opnieuw proberen in de jobgeschiedenis.",
+      "open_onedrive",
+    );
+  for (const disk of input.storage || [])
+    if (
+      disk.availableBytes !== null &&
+      (disk.availableBytes < 1073741824 ||
+        (disk.totalBytes > 0 && disk.availableBytes / disk.totalBytes < 0.1))
+    )
+      add(
+        "low_space_" + disk.scope,
+        "warning",
+        disk.scope === "archives"
+          ? "Weinig ruimte voor back-ups"
+          : "Weinig werkruimte voor herstel",
+        "Maak ruimte vrij in de betreffende TrueNAS-dataset. Verwijder geen laatste herstelbron voordat een andere kopie is gecontroleerd.",
+        "free_space",
+      );
+  const intervalDays = Number(
+      input.config.backupRestoreCheckIntervalDays || 90,
+    ),
+    lastRecordedAt = input.lastCheck?.recordedAt || null;
+  const dueAt = lastRecordedAt
+    ? new Date(
+        Date.parse(lastRecordedAt) + intervalDays * 86400000,
+      ).toISOString()
+    : null;
+  const due =
+    !!input.config.backupRestoreCheckEnabled &&
+    (!dueAt || Date.parse(dueAt) <= now.getTime());
+  if (due)
+    add(
+      "restore_check_due",
+      "warning",
+      "Periodieke herstelcontrole nodig",
+      lastRecordedAt
+        ? "De ingestelde periode sinds je laatste vastgelegde controle is verstreken."
+        : "Er is nog geen technische archiefcontrole met vastgelegde menselijke controles.",
+      "run_restore_check",
+    );
+  return {
+    lastLocalSuccess,
+    lastCloudSuccess,
+    localOverdue,
+    cloud: input.cloud,
+    storage: input.storage,
+    restoreCheck: {
+      enabled: !!input.config.backupRestoreCheckEnabled,
+      intervalDays,
+      lastRecordedAt,
+      dueAt,
+      due,
+    },
+    alerts,
+  };
+}
+async function backupHealth(configValues: any, helper: any, now = new Date()) {
+  const lastLocal = (
+    await query(
+      "SELECT completed_at FROM backup_jobs WHERE operation='backup' AND state='completed' ORDER BY completed_at DESC LIMIT 1",
+    )
+  )[0];
+  const lastJob = camel(
+    (
+      await query(
+        "SELECT state,error,remote_state FROM backup_jobs WHERE operation='backup' ORDER BY created_at DESC LIMIT 1",
+      )
+    )[0] || null,
+  );
+  const lastCheck = camel(
+    (
+      await query(
+        "SELECT recorded_at FROM backup_restore_checks WHERE recorded_at IS NOT NULL ORDER BY recorded_at DESC LIMIT 1",
+      )
+    )[0] || null,
+  );
+  const { getOneDriveHealth } = await import("./onedrive");
+  const cloud = await getOneDriveHealth();
+  const storage = await Promise.all(
+    [
+      ["archives", backups()],
+      ["work", control()],
+    ].map(async ([scope, path]) => {
+      try {
+        const disk = await statfs(path);
+        return {
+          scope,
+          availableBytes: disk.bavail * disk.bsize,
+          totalBytes: disk.blocks * disk.bsize,
+        };
+      } catch {
+        return { scope, availableBytes: null, totalBytes: null };
+      }
+    }),
+  );
+  return assessBackupHealth(
+    {
+      config: configValues,
+      helper,
+      lastLocalSuccess: lastLocal?.completed_at?.toISOString(),
+      lastJob,
+      lastCheck,
+      cloud,
+      storage,
+    },
+    now,
+  );
+}
+async function restoreCheckReminder(now: Date) {
+  if (!(await getSetting("backupRestoreCheckEnabled"))) return;
+  const interval = Number(await getSetting("backupRestoreCheckIntervalDays"));
+  const last = (
+    await query(
+      "SELECT id,recorded_at FROM backup_restore_checks WHERE recorded_at IS NOT NULL ORDER BY recorded_at DESC LIMIT 1",
+    )
+  )[0];
+  if (
+    last &&
+    now.getTime() - new Date(last.recorded_at).getTime() < interval * 86400000
+  )
+    return;
+  const key = "restore-check:" + (last?.id || "initial") + ":" + interval;
+  await transaction(async (c) => {
+    const admins = (
+      await c.query(
+        "SELECT u.id FROM users u LEFT JOIN notification_preferences p ON p.user_id=u.id WHERE u.active AND u.role='admin' AND (coalesce(p.in_app,true) OR coalesce(p.email,false) OR coalesce(p.push,false))",
+      )
+    ).rows;
+    for (const admin of admins) {
+      const claimed = await c.query(
+        "INSERT INTO backup_check_reminders(reminder_key,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING user_id",
+        [key, admin.id],
+      );
+      if (claimed.rowCount)
+        await c.query(
+          "INSERT INTO notifications(user_id,kind,title,body) VALUES($1,'backup_check','Periodieke herstelcontrole nodig','Open Beheer → Back-ups: controleer een archief en leg daarna je taak- en bestandscontroles uit een aparte testinstallatie vast.')",
+          [admin.id],
+        );
+    }
+  });
+}
+
 export async function backupTick(now = new Date()) {
   if (backupAbort.signal.aborted) return;
   await processBackupResults();
+  await restoreCheckReminder(now);
   await processPreparations();
   await processRemoteUploads();
   if (backupAbort.signal.aborted || !(await getSetting("backupEnabled")))
@@ -492,9 +722,12 @@ export async function backupTick(now = new Date()) {
 export class BackupsController {
   @Get("status") async status() {
     await processBackupResults();
+    const currentConfig = await config(),
+      helper = await helperStatus();
     return {
-      config: await config(),
-      helper: await helperStatus(),
+      config: currentConfig,
+      helper,
+      health: await backupHealth(currentConfig, helper),
       activeJob: camel(
         (
           await query(
@@ -518,7 +751,11 @@ export class BackupsController {
       );
     const values: Record<string, any> = {};
     for (const key of configKeys) if (key in b) values[key] = b[key];
-    for (const key of ["backupEnabled", "backupOneDriveEnabled"])
+    for (const key of [
+      "backupEnabled",
+      "backupOneDriveEnabled",
+      "backupRestoreCheckEnabled",
+    ])
       if (key in values && typeof values[key] !== "boolean")
         throw new BadRequestException("Aan/uit-instelling is ongeldig");
     if (
@@ -535,6 +772,13 @@ export class BackupsController {
         values.backupRetentionDays > 3650)
     )
       throw new BadRequestException("Bewaartermijn moet 1–3650 dagen zijn");
+    if (
+      "backupRestoreCheckIntervalDays" in values &&
+      (!Number.isInteger(values.backupRestoreCheckIntervalDays) ||
+        values.backupRestoreCheckIntervalDays < 1 ||
+        values.backupRestoreCheckIntervalDays > 3650)
+    )
+      throw new BadRequestException("Controle-interval moet 1–3650 dagen zijn");
     if ("appTimezone" in values)
       try {
         new Intl.DateTimeFormat("nl-NL", {
@@ -747,6 +991,111 @@ export class BackupsController {
         "Deze back-up is niet beschikbaar voor een nieuwe OneDrive-kopie",
       );
     return { id, state: "pending" };
+  }
+  @Get("restore-checks") async checks(@CurrentUser() u: User) {
+    await processBackupResults();
+    return camel(
+      await query(
+        "SELECT c.*,c.requested_by=$1::uuid AS can_record,j.state AS technical_state,j.completed_at AS technical_checked_at,j.error,j.result FROM backup_restore_checks c JOIN backup_jobs j ON j.id=c.job_id ORDER BY c.created_at DESC LIMIT 100",
+        [u.id],
+      ),
+    );
+  }
+  @Post("restore-checks") async startCheck(
+    @Body() b: any,
+    @CurrentUser() u: User,
+  ) {
+    const job = await this.preview(b, u);
+    return transaction(async (c) => {
+      const row = (
+        await c.query(
+          "INSERT INTO backup_restore_checks(job_id,archive_id,source,requested_by) VALUES($1,$2,$3,$4) RETURNING *",
+          [job.id, b.archiveId, b.source || "local", u.id],
+        )
+      ).rows[0];
+      await audit(c, u.id, "backup_check", row.id, "started", {
+        archiveId: b.archiveId,
+        jobId: job.id,
+        productionRestorePerformed: false,
+      });
+      return { ...camel(row), technicalState: job.state };
+    });
+  }
+  @Post("restore-checks/:id/record") async recordCheck(
+    @Param("id") id: string,
+    @Body() b: any,
+    @CurrentUser() u: User,
+  ) {
+    validId(id);
+    if (b.taskChecked !== true || b.fileChecked !== true)
+      throw new BadRequestException(
+        "Bevestig beide daadwerkelijk uitgevoerde controles in je aparte hersteltest",
+      );
+    for (const key of ["taskReference", "fileReference"])
+      if (
+        typeof b[key] !== "string" ||
+        b[key].trim().length < 3 ||
+        b[key].length > 1000
+      )
+        throw new BadRequestException(
+          "Noteer welke taak en welk bestand je hebt gecontroleerd",
+        );
+    if (
+      b.notes !== undefined &&
+      (typeof b.notes !== "string" || b.notes.length > 4000)
+    )
+      throw new BadRequestException("Notitie maximaal 4000 tekens");
+    await processBackupResults();
+    return transaction(async (c) => {
+      const row = (
+        await c.query(
+          "SELECT c.*,j.state AS technical_state,j.result FROM backup_restore_checks c JOIN backup_jobs j ON j.id=c.job_id WHERE c.id=$1 AND c.requested_by=$2 FOR UPDATE OF c",
+          [id, u.id],
+        )
+      ).rows[0];
+      if (!row)
+        throw new NotFoundException(
+          "Controle niet gevonden of door een andere beheerder gestart",
+        );
+      if (row.technical_state !== "completed" || !row.result.manifest)
+        throw new BadRequestException(
+          "De technische archiefcontrole moet eerst succesvol afgerond zijn",
+        );
+      if (row.recorded_at) {
+        if (
+          row.task_reference === b.taskReference.trim() &&
+          row.file_reference === b.fileReference.trim() &&
+          row.notes === (b.notes || "")
+        )
+          return camel(row);
+        throw new ConflictException(
+          "Een vastgelegde controle is onveranderlijk; start een nieuwe controle",
+        );
+      }
+      if (row.version !== b.version)
+        throw new ConflictException("Controle is gewijzigd; laad opnieuw");
+      const result = (
+        await c.query(
+          "UPDATE backup_restore_checks SET task_checked=true,file_checked=true,task_reference=$2,file_reference=$3,notes=$4,recorded_at=now(),recorded_by=$5,version=version+1 WHERE id=$1 RETURNING *",
+          [
+            id,
+            b.taskReference.trim(),
+            b.fileReference.trim(),
+            b.notes || "",
+            u.id,
+          ],
+        )
+      ).rows[0];
+      await audit(c, u.id, "backup_check", id, "operator_checks_recorded", {
+        archiveId: row.archive_id,
+        technicalSha256: row.result.sha256,
+        taskReference: b.taskReference.trim(),
+        fileReference: b.fileReference.trim(),
+        productionRestorePerformed: false,
+        verificationScope: "archive_validation_and_operator_checks",
+      });
+      return { ...camel(result), productionRestorePerformed: false };
+    });
   }
   @Post("restore-preview") async preview(
     @Body() b: any,

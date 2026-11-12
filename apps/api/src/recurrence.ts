@@ -17,6 +17,7 @@ import { AuthGuard, CurrentUser, User } from "./auth";
 import { audit, camel, query, transaction } from "./db";
 import { validId } from "./inventory";
 import { validateTask } from "./core";
+import { moderateText } from "./moderation";
 
 export interface RecurrenceConfig {
   frequency: "daily" | "weekly" | "monthly" | "yearly" | "dates";
@@ -238,6 +239,10 @@ async function createTask(
   t: any,
   actor: string,
 ) {
+  await moderateText(title);
+  await moderateText(description);
+  await moderateText(JSON.stringify(t.checklist || []));
+
   for (const id of t.assigneeIds || []) {
     if (
       !(await c.query("SELECT id FROM users WHERE id=$1 AND active", [id])).rows
@@ -434,6 +439,7 @@ export async function forecastMaintenance(from: string, to: string) {
       }
       for (const day of candidates) {
         const task: any = seen.get(day);
+        if (task?.moderation_hidden) continue;
         const template = rule.task_template;
         forecast.push({
           id: rule.id + ":" + day,
@@ -491,6 +497,7 @@ export class RecurrenceController {
       throw new BadRequestException("Titel is verplicht");
     const config = validateConfig(b.config),
       t = taskTemplate(b.taskTemplate || {});
+    await moderateText([b.title, b.description, JSON.stringify(t)].join(" "));
     return transaction(async (c) => {
       await validateReferences(c, t);
       const row = (
@@ -532,6 +539,13 @@ export class RecurrenceController {
       const title = b.title ?? old.title;
       if (typeof title !== "string" || !title.trim() || title.length > 250)
         throw new BadRequestException("Titel is verplicht");
+      await moderateText(
+        [
+          title,
+          b.description ?? old.description,
+          JSON.stringify(b.taskTemplate ?? old.task_template),
+        ].join(" "),
+      );
       const row = (
         await c.query(
           "UPDATE recurrence_rules SET title=$2,description=$3,config=$4,task_template=$5,active=$6,version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
@@ -608,7 +622,7 @@ export class RecurrenceController {
     validId(id);
     return camel(
       await query(
-        "SELECT o.rule_id,o.due_date,o.task_id,t.title,t.status,t.completed_at,false AS superseded FROM recurrence_occurrences o JOIN tasks t ON t.id=o.task_id WHERE rule_id=$1 UNION ALL SELECT o.rule_id,o.due_date,o.task_id,t.title,t.status,t.completed_at,true AS superseded FROM recurrence_occurrence_history o JOIN tasks t ON t.id=o.task_id WHERE rule_id=$1 ORDER BY due_date",
+        "SELECT o.rule_id,o.due_date,o.task_id,t.title,t.status,t.completed_at,false AS superseded FROM recurrence_occurrences o JOIN tasks t ON t.id=o.task_id WHERE rule_id=$1 AND NOT t.moderation_hidden UNION ALL SELECT o.rule_id,o.due_date,o.task_id,t.title,t.status,t.completed_at,true AS superseded FROM recurrence_occurrence_history o JOIN tasks t ON t.id=o.task_id WHERE rule_id=$1 AND NOT t.moderation_hidden ORDER BY due_date",
         [id],
       ),
     );
@@ -648,6 +662,7 @@ export class SeasonController {
         );
       return taskTemplate(a);
     });
+    await moderateText([b.name, JSON.stringify(activities)].join(" "));
     return transaction(async (c) => {
       for (const a of activities) await validateReferences(c, a);
       const row = (
@@ -686,6 +701,7 @@ export class SeasonController {
         throw new BadRequestException("Ongeldige activiteit");
       return taskTemplate(a);
     });
+    await moderateText([b.name, JSON.stringify(activities)].join(" "));
     return transaction(async (c) => {
       for (const a of activities) await validateReferences(c, a);
       const old = (

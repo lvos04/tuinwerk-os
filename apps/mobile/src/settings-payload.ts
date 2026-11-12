@@ -84,8 +84,19 @@ export function backupSettingsPayload(
     throw new Error(
       "Kies een uur van 0–23 en een bewaartermijn van 1–3650 dagen.",
     );
+  const backupRestoreCheckIntervalDays = Number(
+    config.backupRestoreCheckIntervalDays ?? 90,
+  );
+  if (
+    !Number.isInteger(backupRestoreCheckIntervalDays) ||
+    backupRestoreCheckIntervalDays < 1 ||
+    backupRestoreCheckIntervalDays > 3650
+  )
+    throw new Error("Kies een herstelcontrole-interval van 1–3650 dagen.");
   return {
     version: config.version,
+    backupRestoreCheckEnabled: config.backupRestoreCheckEnabled ?? true,
+    backupRestoreCheckIntervalDays,
     backupEnabled: !!config.backupEnabled,
     backupHour,
     appTimezone: config.appTimezone,

@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import * as FileSystem from "expo-file-system/legacy";
 import { PendingOperation } from "./queue";
+const purgedOwners = new Set<string>();
 let database: Promise<SQLite.SQLiteDatabase> | undefined;
 async function db() {
   if (!database)
@@ -8,7 +9,10 @@ async function db() {
       const connection = await SQLite.openDatabaseAsync("tuinwerk.db");
       await connection.execAsync(`PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS cache (owner TEXT NOT NULL, name TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY(owner,name));
-      CREATE TABLE IF NOT EXISTS operations (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, owner TEXT NOT NULL, json TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS operations (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, owner TEXT NOT NULL, json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS deleted_owners (owner TEXT PRIMARY KEY);
+      CREATE TRIGGER IF NOT EXISTS prevent_deleted_cache BEFORE INSERT ON cache WHEN EXISTS(SELECT 1 FROM deleted_owners WHERE owner=NEW.owner) BEGIN SELECT RAISE(IGNORE); END;
+      CREATE TRIGGER IF NOT EXISTS prevent_deleted_operations BEFORE INSERT ON operations WHEN EXISTS(SELECT 1 FROM deleted_owners WHERE owner=NEW.owner) BEGIN SELECT RAISE(IGNORE); END;`);
       return connection;
     })();
   return database;
@@ -56,6 +60,34 @@ export async function queueSave(operation: PendingOperation) {
     operation.owner,
     JSON.stringify(operation),
   );
+  if (purgedOwners.has(operation.owner)) {
+    if (operation.fileUri)
+      await FileSystem.deleteAsync(operation.fileUri, { idempotent: true });
+    throw new Error("Account verwijderd; wijziging niet opgeslagen.");
+  }
+}
+export async function queueGet(
+  operation: PendingOperation,
+): Promise<PendingOperation | null> {
+  const row = await (
+    await db()
+  ).getFirstAsync<{ json: string }>(
+    "SELECT json FROM operations WHERE id=? AND owner=?",
+    operation.id,
+    operation.owner,
+  );
+  return row ? JSON.parse(row.json) : null;
+}
+/** The sync engine must never resurrect a draft deleted/replaced while awaiting IO. */
+export async function queueUpdateExisting(operation: PendingOperation) {
+  await (
+    await db()
+  ).runAsync(
+    "UPDATE operations SET json=? WHERE id=? AND owner=?",
+    JSON.stringify(operation),
+    operation.id,
+    operation.owner,
+  );
 }
 export async function queueReplace(
   previous: PendingOperation,
@@ -63,25 +95,30 @@ export async function queueReplace(
 ) {
   if (previous.owner !== replacement.owner)
     throw new Error("Account van concept mag niet wijzigen.");
-  await (
+  const result = await (
     await db()
   ).runAsync(
-    "UPDATE operations SET id=?,json=? WHERE id=? AND owner=?",
+    "UPDATE operations SET id=?,json=? WHERE id=? AND owner=? AND json=?",
     replacement.id,
     JSON.stringify(replacement),
     previous.id,
     previous.owner,
+    JSON.stringify(previous),
   );
+  if (result.changes !== 1)
+    throw new Error(
+      "Dit concept is intussen gewijzigd of verwerkt. Open het opnieuw voordat je wijzigingen toepast.",
+    );
 }
 export async function queueRemove(operation: PendingOperation) {
-  await (
+  const result = await (
     await db()
   ).runAsync(
     "DELETE FROM operations WHERE id=? AND owner=?",
     operation.id,
     operation.owner,
   );
-  if (operation.fileUri)
+  if (result.changes > 0 && operation.fileUri)
     await FileSystem.deleteAsync(operation.fileUri, { idempotent: true }).catch(
       () => {},
     );
@@ -111,6 +148,7 @@ export async function cacheMedia(
   url: string,
   token: string,
 ): Promise<string> {
+  if (purgedOwners.has(owner)) throw new Error("Account verwijderd.");
   const Crypto = await import("expo-crypto");
   const account = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
@@ -120,11 +158,12 @@ export async function cacheMedia(
   await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
   const uri = directory + account + "-" + id;
   const existing = await FileSystem.getInfoAsync(uri);
+  if (purgedOwners.has(owner)) throw new Error("Account verwijderd.");
   if (existing.exists) return uri;
   const result = await FileSystem.downloadAsync(url, uri, {
     headers: { Authorization: "Bearer " + token },
   });
-  if (result.status !== 200) {
+  if (purgedOwners.has(owner) || result.status !== 200) {
     await FileSystem.deleteAsync(uri, { idempotent: true });
     throw new Error("Bijlage niet beschikbaar.");
   }
@@ -149,4 +188,31 @@ export async function cacheMedia(
     }
   }
   return uri;
+}
+
+export async function removeOwnerData(owner: string) {
+  purgedOwners.add(owner);
+  const connection = await db();
+  await connection.runAsync(
+    "INSERT OR IGNORE INTO deleted_owners(owner) VALUES(?)",
+    owner,
+  );
+  const operations = await queueRead(owner);
+  for (const operation of operations)
+    if (operation.fileUri)
+      await FileSystem.deleteAsync(operation.fileUri, { idempotent: true });
+  const Crypto = await import("expo-crypto");
+  const prefix = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    owner,
+  );
+  const directory = FileSystem.documentDirectory + "offline-media/";
+  if ((await FileSystem.getInfoAsync(directory)).exists)
+    for (const name of await FileSystem.readDirectoryAsync(directory))
+      if (name.startsWith(prefix + "-"))
+        await FileSystem.deleteAsync(directory + name, { idempotent: true });
+  await connection.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.runAsync("DELETE FROM operations WHERE owner=?", owner);
+    await transaction.runAsync("DELETE FROM cache WHERE owner=?", owner);
+  });
 }

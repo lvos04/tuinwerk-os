@@ -1,3 +1,4 @@
+import { ReportContent } from "./src/ModerationScreen";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,6 +23,18 @@ import { ManagementScreen } from "./src/ManagementScreen";
 import { MaintenanceScreen } from "./src/MaintenanceScreen";
 import { ConflictEditor } from "./src/ConflictEditor";
 import { projectTasks } from "./src/task-cache";
+import { TaskWorkPanel } from "./src/TaskWorkPanel";
+import { FavoritesPanel } from "./src/FavoritesPanel";
+import {
+  tasksForToday,
+  taskSyncState,
+  operationLabel,
+  operationTaskId,
+} from "./src/work-model";
+import {
+  taskNotificationTarget,
+  taskLinkTarget,
+} from "./src/notification-target";
 import * as Notifications from "expo-notifications";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
@@ -37,11 +50,14 @@ import {
   cacheWrite,
   persistPhoto,
   queueRead,
+  queueGet,
+  queueUpdateExisting,
+  removeOwnerData,
   queueRemove,
   queueReplace,
   queueSave,
 } from "./src/storage";
-import { drainQueue, PendingOperation } from "./src/queue";
+import { drainQueue, PendingOperation, RequestError } from "./src/queue";
 import {
   allPages,
   activateSession,
@@ -80,6 +96,8 @@ const catalogs = [
   "users",
   "notifications",
   "recurrences",
+  "templates",
+  "profile/favorites",
 ];
 const ownerKey = (session: Session) => `${session.endpoint}|${session.user.id}`;
 function Button({
@@ -201,6 +219,16 @@ export default function App() {
     [checklistText, setChecklistText] = useState(""),
     [dependencies, setDependencies] = useState<string[]>([]);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [showTaskDetails, setShowTaskDetails] = useState(false),
+    [showTeamSummary, setShowTeamSummary] = useState(false),
+    [isSyncing, setIsSyncing] = useState(false),
+    [syncingOperation, setSyncingOperation] = useState<string | null>(null),
+    [lastSynced, setLastSynced] = useState<string | null>(null),
+    [navigationIntent, setNavigationIntent] = useState<{
+      id: string;
+      data?: unknown;
+      url?: string;
+    } | null>(null);
   const [selected, setSelected] = useState<Row | null>(null),
     [create, setCreate] = useState(false),
     [title, setTitle] = useState(""),
@@ -246,6 +274,7 @@ export default function App() {
     [shared, setShared] = useState("false");
   const [editOp, setEditOp] = useState<PendingOperation | null>(null),
     [editJson, setEditJson] = useState("");
+  const queueEditing = useRef(false);
   const syncing = useRef(false),
     current = useRef<Session | null>(null),
     biometricRef = useRef(false);
@@ -271,11 +300,18 @@ export default function App() {
       cached[name] = await cacheRead(owner, name, []);
     const pending = await queueRead(owner),
       savedTimer = await cacheRead(owner, "timer", null);
+    const confirmed = await cacheRead<Row[]>(
+      owner,
+      "tasks:confirmed",
+      (cached.tasks || []).filter((task) => !task.localDraft),
+    );
+    cached.tasks = projectTasks(confirmed, pending);
     if (current.current && ownerKey(current.current) === owner) {
       setData(cached);
       setQueue(pending);
       setTimer(savedTimer);
       setDashboardPreferences(await cacheRead(owner, "preferences", null));
+      setLastSynced(await cacheRead(owner, "lastSynced", null));
     }
   }
   async function refresh(active: Session) {
@@ -290,8 +326,10 @@ export default function App() {
           ? await allPages(active, "/" + name)
           : await authorizedRequest(active, "/" + name);
         let rows = Array.isArray(result) ? result : result?.items || [];
-        if (name === "tasks")
+        if (name === "tasks") {
+          await cacheWrite(ownerKey(active), "tasks:confirmed", rows);
           rows = projectTasks(rows, await queueRead(ownerKey(active)));
+        }
         values[name] = rows;
         await cacheWrite(ownerKey(active), name, rows);
       } catch (e) {
@@ -305,13 +343,25 @@ export default function App() {
         setDashboardPreferences(profile.preferences);
     } catch {}
     if (current.current && ownerKey(current.current) === ownerKey(active)) {
+      values.tasks = projectTasks(
+        await cacheRead<Row[]>(ownerKey(active), "tasks:confirmed", []),
+        await queueRead(ownerKey(active)),
+      );
+      if (current.current !== active) return;
       setData((previous) => ({ ...previous, ...values }));
+      setSelected((previous) =>
+        previous
+          ? (values.tasks || []).find((row) => row.id === previous.id) ||
+            previous
+          : null,
+      );
       setQueue(await queueRead(ownerKey(active)));
     }
   }
   async function sync(active = session) {
-    if (!active || syncing.current) return;
+    if (!active || syncing.current || queueEditing.current) return;
     syncing.current = true;
+    setIsSyncing(true);
     setError("");
     try {
       const operations = await queueRead(ownerKey(active));
@@ -319,20 +369,31 @@ export default function App() {
         operations,
         ownerKey(active),
         (op) => sendOperation(active, op),
-        queueSave,
+        queueUpdateExisting,
         queueRemove,
+        {
+          getCurrent: queueGet,
+          isActive: () => current.current === active,
+          onAttempt: (operation) => setSyncingOperation(operation?.id || null),
+        },
       );
       const pending = await queueRead(ownerKey(active));
       if (!current.current || ownerKey(current.current) !== ownerKey(active))
         return;
       setQueue(pending);
       await refresh(active);
+      if (current.current !== active) return;
+      const stamp = new Date().toISOString();
+      await cacheWrite(ownerKey(active), "lastSynced", stamp);
+      setLastSynced(stamp);
       if (result.sent)
         setNotice(`${result.sent} wijziging(en) bevestigd door de server.`);
     } catch (e) {
       displayError(e);
     } finally {
       syncing.current = false;
+      setIsSyncing(false);
+      setSyncingOperation(null);
     }
   }
   useEffect(() => {
@@ -403,7 +464,12 @@ export default function App() {
     method: "POST" | "PATCH" = "POST",
     fileUri?: string,
   ) {
-    if (!session) throw new Error("Meld je opnieuw aan.");
+    if (!session || current.current !== session)
+      throw new Error("Meld je opnieuw aan.");
+    if (queueEditing.current)
+      throw new Error(
+        "Wacht totdat de huidige account- of conceptactie klaar is.",
+      );
     if ((await queueRead(ownerKey(session))).length >= 500)
       throw new Error(
         "Maximaal 500 wachtende wijzigingen. Synchroniseer eerst.",
@@ -425,6 +491,7 @@ export default function App() {
       path,
       payload,
       status: "pending",
+      createdAt: new Date().toISOString(),
     };
     if (fileUri) {
       operation.fileUri = await persistPhoto(fileUri, operation.id);
@@ -432,24 +499,41 @@ export default function App() {
       operation.filename = "foto.jpg";
     }
     await queueSave(operation);
-    setQueue(await queueRead(ownerKey(session)));
+    const pending = await queueRead(ownerKey(session));
+    if (current.current !== session) return;
+    setQueue(pending);
     if (path === "/tasks" || /^\/tasks\/[^/]+$/.test(path)) {
-      const cached = await cacheRead<Row[]>(ownerKey(session), "tasks", []);
-      const projected = projectTasks(cached, [operation]);
+      const cached = await cacheRead<Row[]>(
+        ownerKey(session),
+        "tasks:confirmed",
+        (data.tasks || []).filter((task) => !task.localDraft),
+      );
+      const projected = projectTasks(
+        cached,
+        await queueRead(ownerKey(session)),
+      );
       await cacheWrite(ownerKey(session), "tasks", projected);
+      if (current.current !== session) return;
       setData((previous) => ({ ...previous, tasks: projected }));
+      setSelected((previous) =>
+        previous
+          ? projected.find((row) => row.id === previous.id) || previous
+          : null,
+      );
     }
     setNotice("Lokaal veilig opgeslagen. Wacht op serverbevestiging.");
   }
   async function pickPhoto(camera: boolean) {
     await guard(async () => {
-      const access = camera
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!access.granted)
-        throw new Error(
-          "Geef toestemming voor camera of fotobibliotheek in je telefooninstellingen.",
-        );
+      if (camera) {
+        const access = await ImagePicker.requestCameraPermissionsAsync();
+        if (!access.granted)
+          throw new Error(
+            "Geen cameratoegang. Kies een bestaande foto via de fotoknop of ga zonder foto verder. Je kunt cameratoegang later in de telefooninstellingen toestaan.",
+          );
+      }
+      // The system photo picker grants access only to the selected image.
+      // It does not require broad photo-library permission.
       const result = await (
         camera
           ? ImagePicker.launchCameraAsync
@@ -558,22 +642,79 @@ export default function App() {
       await sync();
     });
   }
-  async function changeStatus(status: string) {
+  async function changeStatus(status: string, providedReason = reason) {
     await guard(async () => {
       if (!selected) return;
       if (
         (status === "blocked" || selected.status === "completed") &&
-        !reason.trim()
+        !providedReason.trim()
       )
         throw new Error("Vul een reden voor blokkeren of heropenen in.");
       await enqueue(
         "/tasks/" + selected.id,
-        { version: selected.version, status, reason },
+        { version: selected.version, status, reason: providedReason },
         "PATCH",
       );
-      setSelected(null);
       setReason("");
       await sync();
+    });
+  }
+  async function deleteOwnAccount(input: {
+    password: string;
+    otp?: string;
+    confirmation: string;
+  }) {
+    const active = current.current;
+    if (!active) throw new Error("Meld je opnieuw aan.");
+    if (syncing.current || queueEditing.current)
+      throw new Error("Wacht totdat de synchronisatie klaar is.");
+    queueEditing.current = true;
+    try {
+      const result = await authorizedRequest(
+        active,
+        "/auth/account",
+        "DELETE",
+        input,
+      );
+      if (!result.deleted) throw new Error("Verwijdering niet bevestigd.");
+      current.current = null;
+      setSession(null);
+      await clearSession();
+      setData({});
+      setQueue([]);
+      setSelected(null);
+      setTimer(null);
+      setNavigationIntent(null);
+      setDetails({});
+      setPhoto(null);
+      setAnnotated(null);
+      setEditOp(null);
+      setEditJson("");
+      setConflictCurrent(null);
+      setDashboardPreferences(null);
+      setForecast([]);
+      setEmail("");
+      try {
+        await removeOwnerData(ownerKey(active));
+      } catch {
+        setError(
+          "Je account is verwijderd, maar lokale bestanden konden niet volledig worden gewist. Verwijder de appgegevens via de toestelinstellingen.",
+        );
+        return;
+      }
+      await Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      setNotice(
+        result.message ||
+          "Je account en lokale accountgegevens zijn verwijderd.",
+      );
+    } finally {
+      queueEditing.current = false;
+    }
+  }
+  async function openPublicPage(path: "/privacy" | "/support") {
+    await guard(async () => {
+      const url = session?.endpoint || normalizeEndpoint(endpoint);
+      await Linking.openURL(url.replace(/\/api$/, "") + path);
     });
   }
   async function logout() {
@@ -694,7 +835,7 @@ export default function App() {
         "detail:" + taskId,
         {},
       );
-      if (!cancelled) setDetails(cached);
+      if (!cancelled && current.current === active) setDetails(cached);
       if (!online) return;
       const loaded: Record<string, Row[]> = {};
       for (const [name, path] of Object.entries({
@@ -722,7 +863,7 @@ export default function App() {
         } catch {}
       }
       await cacheWrite(ownerKey(active), "detail:" + taskId, loaded);
-      if (!cancelled) setDetails(loaded);
+      if (!cancelled && current.current === active) setDetails(loaded);
     })().catch(displayError);
     return () => {
       cancelled = true;
@@ -783,6 +924,202 @@ export default function App() {
       cancelled = true;
     };
   }, [year, session?.user.id, session?.endpoint, tab, online]);
+  async function mutateQueue(action: () => Promise<void>) {
+    if (!session) return;
+    if (syncing.current || queueEditing.current)
+      throw new Error(
+        "Wacht tot de huidige synchronisatie klaar is. Je concept blijft bewaard.",
+      );
+    queueEditing.current = true;
+    try {
+      await action();
+      const owner = ownerKey(session),
+        pending = await queueRead(owner),
+        confirmed = await cacheRead<Row[]>(owner, "tasks:confirmed", []),
+        projected = projectTasks(confirmed, pending);
+      await cacheWrite(owner, "tasks", projected);
+      if (current.current === session) {
+        setQueue(pending);
+        setData((previous) => ({ ...previous, tasks: projected }));
+        setSelected((previous) =>
+          previous
+            ? projected.find((task) => task.id === previous.id) || null
+            : null,
+        );
+      }
+    } finally {
+      queueEditing.current = false;
+    }
+  }
+  function openSyncForTask(taskId: string) {
+    const operation =
+      queue.find(
+        (op) => operationTaskId(op) === taskId && op.status !== "pending",
+      ) || queue.find((op) => operationTaskId(op) === taskId);
+    setTab("Meer");
+    setExtraPage("");
+    setSelected(null);
+    setCreate(false);
+    if (operation) {
+      setEditOp(operation);
+      setConflictCurrent((operation.conflict as Row)?.current || null);
+      setEditJson(JSON.stringify(operation.payload));
+    }
+  }
+  async function toggleFavorite(type: string, id: string, remove: boolean) {
+    await guard(async () => {
+      if (!session || !online)
+        throw new Error("Verbind met de server om favorieten te wijzigen.");
+      await authorizedRequest(
+        session,
+        remove ? "/profile/favorites/" + type + "/" + id : "/profile/favorites",
+        remove ? "DELETE" : "PUT",
+        remove ? undefined : { type, id },
+      );
+      const rows = await authorizedRequest(session, "/profile/favorites");
+      await cacheWrite(ownerKey(session), "profile/favorites", rows);
+      setData((previous) => ({ ...previous, "profile/favorites": rows }));
+    });
+  }
+  function useFavorite(favorite: Row) {
+    if (favorite.available === false) return;
+    if (favorite.type === "asset") {
+      const asset = (data.assets || []).find((row) => row.id === favorite.id);
+      beginTask({ assetId: favorite.id, locationId: asset?.locationId });
+    } else if (favorite.type === "location")
+      beginTask({ locationId: favorite.id });
+    else {
+      const record = (data.templates || []).find(
+        (row) => row.id === favorite.id,
+      );
+      if (!record) {
+        setError(
+          "Dit sjabloon is nog niet lokaal beschikbaar. Synchroniseer eerst.",
+        );
+        return;
+      }
+      const template = record.template || {};
+      beginTask({ assetId: template.assetId, locationId: template.locationId });
+      setTitle(template.title || record.name);
+      setDescription(template.description || "");
+      setPriority(template.priority || "normal");
+      setCategory(template.category || "reparatie");
+      setAssignees(template.assignedTo || []);
+      setTags((template.tags || []).join(", "));
+      setEstimated(
+        template.estimatedMinutes == null
+          ? ""
+          : String(template.estimatedMinutes),
+      );
+      setChecklistText(
+        (template.checklist || []).map((line: Row) => line.text).join("\n"),
+      );
+      setDependencies(template.dependencies || []);
+    }
+  }
+  useEffect(() => {
+    const receive = (response: Notifications.NotificationResponse) =>
+      setNavigationIntent({
+        id: response.notification.request.identifier,
+        data: response.notification.request.content.data,
+      });
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener(receive);
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) receive(response);
+      })
+      .catch(() => {});
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) setNavigationIntent({ id: url, url });
+      })
+      .catch(() => {});
+    const links = Linking.addEventListener("url", ({ url }) =>
+      setNavigationIntent({ id: url, url }),
+    );
+    return () => {
+      subscription.remove();
+      links.remove();
+    };
+  }, []);
+  useEffect(() => {
+    if (!session || locked || !navigationIntent) return;
+    const active = session,
+      intent = navigationIntent;
+    let cancelled = false;
+    const target = intent.url
+      ? taskLinkTarget(intent.url, active)
+      : taskNotificationTarget(intent.data, active);
+    if (!target) {
+      setNavigationIntent(null);
+      if (!intent.url)
+        void Notifications.clearLastNotificationResponseAsync().catch(() => {});
+      return;
+    }
+    (async () => {
+      const cached = await cacheRead<Row[]>(
+        ownerKey(active),
+        "tasks:confirmed",
+        [],
+      );
+      let task = cached.find((row) => row.id === target.taskId);
+      if (online) {
+        try {
+          task = await authorizedRequest(active, "/tasks/" + target.taskId);
+          const confirmed = await cacheRead<Row[]>(
+            ownerKey(active),
+            "tasks:confirmed",
+            [],
+          );
+          await cacheWrite(ownerKey(active), "tasks:confirmed", [
+            task,
+            ...confirmed.filter((row) => row.id !== target.taskId),
+          ]);
+        } catch (error) {
+          if (
+            !task ||
+            (error instanceof RequestError &&
+              [401, 403, 404].includes(error.status))
+          )
+            throw error;
+        }
+      }
+      if (cancelled || current.current !== active) return;
+      if (!task) {
+        setNotice(
+          "Deze taak staat nog niet op dit toestel. Verbind en open de melding opnieuw.",
+        );
+        setNavigationIntent(null);
+        return;
+      }
+      setSelected(projectTasks([task], await queueRead(ownerKey(active)))[0]);
+      setShowTaskDetails(false);
+      setTab("Taken");
+      setCreate(false);
+      setPhoto(null);
+      setAnnotated(null);
+      setNavigationIntent(null);
+      if ((target.batchId || target.notificationId) && online)
+        await authorizedRequest(
+          active,
+          target.batchId
+            ? "/notifications/batches/" + target.batchId + "/read"
+            : "/notifications/" + target.notificationId + "/read",
+          "PATCH",
+          {},
+        );
+      if (!intent.url) await Notifications.clearLastNotificationResponseAsync();
+    })().catch((error) => {
+      if (!cancelled && current.current === active) {
+        displayError(error);
+        setNavigationIntent(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigationIntent?.id, session, locked, online]);
   const filtered = (name: string) =>
     (data[name] || []).filter((row) =>
       JSON.stringify(row).toLowerCase().includes(search.toLowerCase()),
@@ -805,6 +1142,7 @@ export default function App() {
       key={task.id}
       onPress={() => {
         setSelected(task);
+        setShowTaskDetails(false);
         setReason("");
         setPhoto(null);
       }}
@@ -812,7 +1150,15 @@ export default function App() {
     >
       <Text style={styles.meta}>
         {priorities[task.priority]} · {statuses[task.status]}
-        {task.localDraft ? " · Lokaal concept" : ""}
+        {taskSyncState(task.id, queue, !!task.localDraft).status === "conflict"
+          ? " · ! Conflict, invoer bewaard"
+          : taskSyncState(task.id, queue, !!task.localDraft).status === "failed"
+            ? " · ! Corrigeren"
+            : taskSyncState(task.id, queue, !!task.localDraft).count
+              ? ` · ◷ ${taskSyncState(task.id, queue, !!task.localDraft).count} wachtend`
+              : task.localDraft
+                ? " · ◷ Serverstatus ophalen"
+                : " · ✓ Bevestigd"}
       </Text>
       <Text style={styles.cardTitle}>{task.title}</Text>
       <Text style={styles.muted}>
@@ -875,6 +1221,16 @@ export default function App() {
               label={busy ? "Aanmelden…" : "Aanmelden"}
               disabled={busy}
               onPress={() => void login()}
+            />
+            <Button
+              secondary
+              label="Privacybeleid"
+              onPress={() => void openPublicPage("/privacy")}
+            />
+            <Button
+              secondary
+              label="Ondersteuning"
+              onPress={() => void openPublicPage("/support")}
             />
             <Text style={styles.muted}>
               Gebruik het adres van je eigen TuinWerk-server. Buiten het bedrijf
@@ -960,7 +1316,8 @@ export default function App() {
           onPress={() => void guard(() => sync())}
         >
           <Text style={styles.sync}>
-            {online ? "● Online" : "○ Offline"} · {queue.length} wachtend
+            {isSyncing ? "↻ Synchroniseren" : online ? "● Online" : "○ Offline"}{" "}
+            · {queue.length} wachtend
           </Text>
         </Pressable>
       </View>
@@ -1168,297 +1525,406 @@ export default function App() {
               </Text>
               <Text style={styles.title}>{selected.title}</Text>
               <Text>{selected.description}</Text>
-              <Button
-                secondary
-                label="Taakgegevens bewerken"
-                onPress={() => {
-                  setEditing(selected);
-                  setTitle(selected.title);
-                  setDescription(selected.description || "");
-                  setPriority(selected.priority);
-                  setCategory(selected.category || "");
-                  setDeadline(selected.deadline || "");
-                  setPlannedAt(selected.plannedAt || "");
-                  setAvailableFrom(selected.availableFrom || "");
-                  setEstimated(
-                    selected.estimatedMinutes == null
-                      ? ""
-                      : String(selected.estimatedMinutes),
-                  );
-                  setTags((selected.tags || []).join(", "));
-                  setChecklistText(
-                    (selected.checklist || [])
-                      .map((item: Row) => item.text)
-                      .join("\n"),
-                  );
-                  setDependencies(selected.dependencies || []);
-                  setLocationId(selected.locationId || "");
-                  setAssetId(selected.assetId || "");
-                  setAssignees(selected.assignedTo || []);
-                  setPhoto(null);
-                  setAnnotated(null);
-                  setCreate(true);
-                }}
+              <ReportContent
+                session={session}
+                targetType="task"
+                targetId={selected.id}
               />
-              <Text style={styles.label}>Status wijzigen</Text>
-              <Field
-                label="Reden (verplicht bij blokkeren / heropenen)"
-                value={reason}
-                onChange={setReason}
-              />
-              <Choices
-                values={statuses}
-                value={selected.status}
-                onChange={(status) => {
-                  if (["completed", "cancelled", "archived"].includes(status))
-                    Alert.alert(
-                      "Status bevestigen",
-                      `Taak op ${statuses[status]} zetten?`,
-                      [
-                        { text: "Annuleren", style: "cancel" },
-                        {
-                          text: "Bevestigen",
-                          onPress: () => void changeStatus(status),
-                        },
-                      ],
-                    );
-                  else void changeStatus(status);
-                }}
-              />
-              {(selected.checklist || []).map((line: Row, index: number) => (
-                <Button
-                  secondary
-                  key={line.id || index}
-                  label={`${line.done ? "☑" : "☐"} ${line.title || line.text}`}
-                  onPress={() =>
-                    void guard(async () => {
-                      const checklist = selected.checklist.map(
-                        (item: Row, i: number) =>
-                          i === index ? { ...item, done: !item.done } : item,
-                      );
-                      await enqueue(
-                        "/tasks/" + selected.id,
-                        { version: selected.version, checklist },
-                        "PATCH",
-                      );
-                      setSelected(null);
-                      await sync();
-                    })
-                  }
-                />
-              ))}
-              <Text style={styles.label}>Betrokken medewerkers</Text>
-              {(data.users || []).map((user) => (
-                <Button
-                  secondary
-                  key={user.id}
-                  label={`${(selected.assignedTo || []).includes(user.id) ? "✓ " : ""}${user.name}`}
-                  onPress={() =>
-                    void guard(async () => {
-                      const assignedTo = (selected.assignedTo || []).includes(
-                        user.id,
-                      )
-                        ? selected.assignedTo.filter(
-                            (id: string) => id !== user.id,
-                          )
-                        : [...(selected.assignedTo || []), user.id];
-                      await enqueue(
-                        "/tasks/" + selected.id,
-                        { version: selected.version, assignedTo },
-                        "PATCH",
-                      );
-                      setSelected(null);
-                      await sync();
-                    })
-                  }
-                />
-              ))}
-              <Button
-                secondary
-                label="Onderdeelverbruik voor deze taak"
-                onPress={() => {
-                  setPartTaskId(selected.id);
-                  setSelected(null);
-                  setTab("Voorraad");
-                }}
-              />
-              <Field
-                label="Opmerking"
-                value={comment}
-                onChange={setComment}
-                multiline
-              />
-              <Button
-                label="Opmerking plaatsen"
-                onPress={() =>
+              <TaskWorkPanel
+                key={selected.id}
+                task={selected}
+                catalogs={data}
+                queue={queue}
+                busy={busy}
+                online={online}
+                timer={timer}
+                photo={photo}
+                annotated={annotated}
+                onPhoto={(camera) => void pickPhoto(camera)}
+                onAnnotation={setAnnotated}
+                onSavePhoto={(phase) =>
                   void guard(async () => {
-                    if (!comment.trim())
-                      throw new Error("Vul een opmerking in.");
-                    await enqueue("/tasks/" + selected.id + "/comments", {
-                      body: comment,
-                    });
-                    setComment("");
+                    if (!photo) return;
+                    await enqueue(
+                      "/attachments",
+                      { taskId: selected.id, phase },
+                      "POST",
+                      photo,
+                    );
+                    if (annotated)
+                      await enqueue(
+                        "/attachments",
+                        { taskId: selected.id, phase },
+                        "POST",
+                        annotated,
+                      );
+                    setPhoto(null);
+                    setAnnotated(null);
                     await sync();
                   })
                 }
+                onStatus={(status, reason) => void changeStatus(status, reason)}
+                onChecklist={(checklist) =>
+                  void guard(async () => {
+                    await enqueue(
+                      "/tasks/" + selected.id,
+                      { version: selected.version, checklist },
+                      "PATCH",
+                    );
+                    await sync();
+                  })
+                }
+                onTimer={(action) => void timerAction(action)}
+                onTime={(minutes) =>
+                  void guard(async () => {
+                    await enqueue("/tasks/" + selected.id + "/time", {
+                      minutes,
+                    });
+                    await sync();
+                  })
+                }
+                onPart={(payload) =>
+                  void guard(async () => {
+                    await enqueue("/inventory/movements", payload);
+                    await sync();
+                  })
+                }
+                onResolve={() => openSyncForTask(selected.id)}
+                onSync={() => void sync()}
               />
-              <Text style={styles.section}>Timer</Text>
-              {timer && (
-                <Text style={styles.notice}>
-                  {timer.taskId === selected.id ? "Deze taak" : "Andere taak"} ·{" "}
-                  {timer.runningSince ? "Timer loopt" : "Gepauzeerd"}
-                </Text>
-              )}
               <Button
                 secondary
                 label={
-                  timer?.runningSince ? "Timer loopt" : "Start / hervat timer"
+                  showTaskDetails
+                    ? "Uitgebreide gegevens sluiten"
+                    : "Taakgegevens, reacties en historie"
                 }
-                disabled={!!timer?.runningSince}
-                onPress={() => void timerAction("start")}
+                onPress={() => setShowTaskDetails(!showTaskDetails)}
               />
-              {timer?.taskId === selected.id && (
+              {showTaskDetails && (
                 <>
                   <Button
                     secondary
-                    label="Pauze"
-                    onPress={() => void timerAction("pause")}
+                    label="Taakgegevens bewerken"
+                    onPress={() => {
+                      setEditing(selected);
+                      setTitle(selected.title);
+                      setDescription(selected.description || "");
+                      setPriority(selected.priority);
+                      setCategory(selected.category || "");
+                      setDeadline(selected.deadline || "");
+                      setPlannedAt(selected.plannedAt || "");
+                      setAvailableFrom(selected.availableFrom || "");
+                      setEstimated(
+                        selected.estimatedMinutes == null
+                          ? ""
+                          : String(selected.estimatedMinutes),
+                      );
+                      setTags((selected.tags || []).join(", "));
+                      setChecklistText(
+                        (selected.checklist || [])
+                          .map((item: Row) => item.text)
+                          .join("\n"),
+                      );
+                      setDependencies(selected.dependencies || []);
+                      setLocationId(selected.locationId || "");
+                      setAssetId(selected.assetId || "");
+                      setAssignees(selected.assignedTo || []);
+                      setPhoto(null);
+                      setAnnotated(null);
+                      setCreate(true);
+                    }}
                   />
-                  <Button
-                    secondary
-                    label="Stop en registreer"
-                    onPress={() => void timerAction("stop")}
+                  <Text style={styles.label}>Status wijzigen</Text>
+                  <Field
+                    label="Reden (verplicht bij blokkeren / heropenen)"
+                    value={reason}
+                    onChange={setReason}
                   />
-                </>
-              )}
-              <Field
-                label="Bestede minuten"
-                value={minutes}
-                onChange={setMinutes}
-                keyboard="decimal-pad"
-              />
-              <Button
-                secondary
-                label="Tijd registreren"
-                onPress={() =>
-                  void guard(async () => {
-                    const duration = Number(minutes);
-                    if (!Number.isFinite(duration) || duration <= 0)
-                      throw new Error("Voer een positief aantal minuten in.");
-                    await enqueue("/tasks/" + selected.id + "/time", {
-                      minutes: duration,
-                    });
-                    await sync();
-                  })
-                }
-              />
-              <Text style={styles.section}>Reacties</Text>
-              {(details.comments || []).map((row) => (
-                <View style={styles.card} key={row.id}>
-                  <Text style={styles.meta}>
-                    {row.author} ·{" "}
-                    {new Date(row.createdAt).toLocaleString("nl-NL")}
-                  </Text>
-                  <Text>{row.body}</Text>
-                </View>
-              ))}
-              <Text style={styles.section}>Geschiedenis</Text>
-              {(details.history || [])
-                .slice(-20)
-                .reverse()
-                .map((row) => (
-                  <Text key={row.id} style={styles.listItem}>
-                    {row.action} ·{" "}
-                    {new Date(row.createdAt).toLocaleString("nl-NL")}
-                  </Text>
-                ))}
-              <Text style={styles.section}>Bijlagen</Text>
-              {(details.attachments || []).map((row) => (
-                <View style={styles.card} key={row.id}>
-                  <Text>
-                    {row.name || row.originalName || row.filename || "Bijlage"}{" "}
-                    · {row.phase}
-                  </Text>
-                  {(row.mimeType || row.mime || "").startsWith("image/") && (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Foto vergroten"
-                      onPress={() => {
-                        setZoomImage(
-                          row.localUri ||
-                            session.endpoint +
-                              "/attachments/" +
-                              row.id +
-                              "/file",
+                  <Choices
+                    values={statuses}
+                    value={selected.status}
+                    onChange={(status) => {
+                      if (
+                        ["completed", "cancelled", "archived"].includes(status)
+                      )
+                        Alert.alert(
+                          "Status bevestigen",
+                          `Taak op ${statuses[status]} zetten?`,
+                          [
+                            { text: "Annuleren", style: "cancel" },
+                            {
+                              text: "Bevestigen",
+                              onPress: () => void changeStatus(status),
+                            },
+                          ],
                         );
-                        setZoom(1);
-                      }}
-                    >
-                      <Image
-                        style={styles.photo}
-                        source={{
-                          uri:
-                            row.localUri ||
-                            session.endpoint +
-                              "/attachments/" +
-                              row.id +
-                              "/file",
-                          headers: { Authorization: "Bearer " + session.token },
-                        }}
-                      />
-                    </Pressable>
-                  )}
-                </View>
-              ))}
-              <Button
-                secondary
-                label="Reparatiefoto maken"
-                onPress={() => void pickPhoto(true)}
-              />
-              {photo && (
-                <>
-                  <Image
-                    source={{ uri: annotated || photo }}
-                    style={styles.photo}
+                      else void changeStatus(status);
+                    }}
                   />
+                  {(selected.checklist || []).map(
+                    (line: Row, index: number) => (
+                      <Button
+                        secondary
+                        key={line.id || index}
+                        label={`${line.done ? "☑" : "☐"} ${line.title || line.text}`}
+                        onPress={() =>
+                          void guard(async () => {
+                            const checklist = selected.checklist.map(
+                              (item: Row, i: number) =>
+                                i === index
+                                  ? { ...item, done: !item.done }
+                                  : item,
+                            );
+                            await enqueue(
+                              "/tasks/" + selected.id,
+                              { version: selected.version, checklist },
+                              "PATCH",
+                            );
+                            setSelected(null);
+                            await sync();
+                          })
+                        }
+                      />
+                    ),
+                  )}
+                  <Text style={styles.label}>Betrokken medewerkers</Text>
+                  {(data.users || []).map((user) => (
+                    <Button
+                      secondary
+                      key={user.id}
+                      label={`${(selected.assignedTo || []).includes(user.id) ? "✓ " : ""}${user.name}`}
+                      onPress={() =>
+                        void guard(async () => {
+                          const assignedTo = (
+                            selected.assignedTo || []
+                          ).includes(user.id)
+                            ? selected.assignedTo.filter(
+                                (id: string) => id !== user.id,
+                              )
+                            : [...(selected.assignedTo || []), user.id];
+                          await enqueue(
+                            "/tasks/" + selected.id,
+                            { version: selected.version, assignedTo },
+                            "PATCH",
+                          );
+                          setSelected(null);
+                          await sync();
+                        })
+                      }
+                    />
+                  ))}
                   <Button
                     secondary
-                    label="Foto annoteren"
-                    onPress={() => setAnnotating(true)}
+                    label="Onderdeelverbruik voor deze taak"
+                    onPress={() => {
+                      setPartTaskId(selected.id);
+                      setSelected(null);
+                      setTab("Voorraad");
+                    }}
                   />
-                  {annotating && (
-                    <PhotoAnnotator
-                      uri={photo}
-                      onCancel={() => setAnnotating(false)}
-                      onSave={(uri) => {
-                        setAnnotated(uri);
-                        setAnnotating(false);
-                      }}
-                    />
-                  )}
+                  <Field
+                    label="Opmerking"
+                    value={comment}
+                    onChange={setComment}
+                    multiline
+                  />
                   <Button
-                    label="Eindfoto toevoegen"
+                    label="Opmerking plaatsen"
                     onPress={() =>
                       void guard(async () => {
-                        await enqueue(
-                          "/attachments",
-                          { taskId: selected.id, phase: "after" },
-                          "POST",
-                          photo,
-                        );
-                        if (annotated)
-                          await enqueue(
-                            "/attachments",
-                            { taskId: selected.id, phase: "after" },
-                            "POST",
-                            annotated,
-                          );
-                        setAnnotated(null);
-                        setPhoto(null);
+                        if (!comment.trim())
+                          throw new Error("Vul een opmerking in.");
+                        await enqueue("/tasks/" + selected.id + "/comments", {
+                          body: comment,
+                        });
+                        setComment("");
                         await sync();
                       })
                     }
                   />
+                  <Text style={styles.section}>Timer</Text>
+                  {timer && (
+                    <Text style={styles.notice}>
+                      {timer.taskId === selected.id
+                        ? "Deze taak"
+                        : "Andere taak"}{" "}
+                      · {timer.runningSince ? "Timer loopt" : "Gepauzeerd"}
+                    </Text>
+                  )}
+                  <Button
+                    secondary
+                    label={
+                      timer?.runningSince
+                        ? "Timer loopt"
+                        : "Start / hervat timer"
+                    }
+                    disabled={!!timer?.runningSince}
+                    onPress={() => void timerAction("start")}
+                  />
+                  {timer?.taskId === selected.id && (
+                    <>
+                      <Button
+                        secondary
+                        label="Pauze"
+                        onPress={() => void timerAction("pause")}
+                      />
+                      <Button
+                        secondary
+                        label="Stop en registreer"
+                        onPress={() => void timerAction("stop")}
+                      />
+                    </>
+                  )}
+                  <Field
+                    label="Bestede minuten"
+                    value={minutes}
+                    onChange={setMinutes}
+                    keyboard="decimal-pad"
+                  />
+                  <Button
+                    secondary
+                    label="Tijd registreren"
+                    onPress={() =>
+                      void guard(async () => {
+                        const duration = Number(minutes);
+                        if (!Number.isFinite(duration) || duration <= 0)
+                          throw new Error(
+                            "Voer een positief aantal minuten in.",
+                          );
+                        await enqueue("/tasks/" + selected.id + "/time", {
+                          minutes: duration,
+                        });
+                        await sync();
+                      })
+                    }
+                  />
+                  <Text style={styles.section}>Reacties</Text>
+                  {(details.comments || []).map((row) => (
+                    <View style={styles.card} key={row.id}>
+                      <Text style={styles.meta}>
+                        {row.author} ·{" "}
+                        {new Date(row.createdAt).toLocaleString("nl-NL")}
+                      </Text>
+                      <Text>{row.body}</Text>
+                      <ReportContent
+                        session={session}
+                        targetType="comment"
+                        targetId={row.id}
+                      />
+                    </View>
+                  ))}
+                  <Text style={styles.section}>Geschiedenis</Text>
+                  {(details.history || [])
+                    .slice(-20)
+                    .reverse()
+                    .map((row) => (
+                      <Text key={row.id} style={styles.listItem}>
+                        {row.action} ·{" "}
+                        {new Date(row.createdAt).toLocaleString("nl-NL")}
+                      </Text>
+                    ))}
+                  <Text style={styles.section}>Bijlagen</Text>
+                  {(details.attachments || []).map((row) => (
+                    <View style={styles.card} key={row.id}>
+                      <Text>
+                        {row.name ||
+                          row.originalName ||
+                          row.filename ||
+                          "Bijlage"}{" "}
+                        · {row.phase}
+                      </Text>
+                      <ReportContent
+                        session={session}
+                        targetType="attachment"
+                        targetId={row.id}
+                      />
+                      {(row.mimeType || row.mime || "").startsWith(
+                        "image/",
+                      ) && (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Foto vergroten"
+                          onPress={() => {
+                            setZoomImage(
+                              row.localUri ||
+                                session.endpoint +
+                                  "/attachments/" +
+                                  row.id +
+                                  "/file",
+                            );
+                            setZoom(1);
+                          }}
+                        >
+                          <Image
+                            style={styles.photo}
+                            source={{
+                              uri:
+                                row.localUri ||
+                                session.endpoint +
+                                  "/attachments/" +
+                                  row.id +
+                                  "/file",
+                              headers: {
+                                Authorization: "Bearer " + session.token,
+                              },
+                            }}
+                          />
+                        </Pressable>
+                      )}
+                    </View>
+                  ))}
+                  <Button
+                    secondary
+                    label="Reparatiefoto maken"
+                    onPress={() => void pickPhoto(true)}
+                  />
+                  {photo && (
+                    <>
+                      <Image
+                        source={{ uri: annotated || photo }}
+                        style={styles.photo}
+                      />
+                      <Button
+                        secondary
+                        label="Foto annoteren"
+                        onPress={() => setAnnotating(true)}
+                      />
+                      {annotating && (
+                        <PhotoAnnotator
+                          uri={photo}
+                          onCancel={() => setAnnotating(false)}
+                          onSave={(uri) => {
+                            setAnnotated(uri);
+                            setAnnotating(false);
+                          }}
+                        />
+                      )}
+                      <Button
+                        label="Eindfoto toevoegen"
+                        onPress={() =>
+                          void guard(async () => {
+                            await enqueue(
+                              "/attachments",
+                              { taskId: selected.id, phase: "after" },
+                              "POST",
+                              photo,
+                            );
+                            if (annotated)
+                              await enqueue(
+                                "/attachments",
+                                { taskId: selected.id, phase: "after" },
+                                "POST",
+                                annotated,
+                              );
+                            setAnnotated(null);
+                            setPhoto(null);
+                            await sync();
+                          })
+                        }
+                      />
+                    </>
+                  )}
                 </>
               )}
             </View>
@@ -1470,113 +1936,157 @@ export default function App() {
                   <Text style={styles.title}>
                     Goedendag, {session.user.name.split(" ")[0]}.
                   </Text>
-                  <View style={styles.stats}>
-                    <View style={styles.stat}>
-                      <Text style={styles.number}>{activeTasks.length}</Text>
-                      <Text>Open taken</Text>
-                    </View>
-                    <View style={styles.stat}>
-                      <Text style={styles.number}>
-                        {
-                          activeTasks.filter((t) => t.priority === "critical")
-                            .length
-                        }
-                      </Text>
-                      <Text>Kritiek</Text>
-                    </View>
-                    <View style={styles.stat}>
-                      <Text style={styles.number}>{queue.length}</Text>
-                      <Text>Wachtend</Text>
-                    </View>
-                  </View>
+                  <Button
+                    label={`Mijn taken vandaag · ${tasksForToday(tasks, session.user.id).length}`}
+                    onPress={() => {
+                      setTab("Taken");
+                      setTaskView("today");
+                      setSearch("");
+                    }}
+                  />
                   <Button
                     label="＋ Storing melden"
                     onPress={() => beginTask()}
                   />
                   <Button
-                    secondary
-                    label="QR-code scannen"
+                    label="▣ QR-code scannen"
                     onPress={() => setScan(true)}
                   />
-                  {tiles.includes("mine") && (
-                    <>
-                      <Text style={styles.section}>Mijn werk</Text>
-                      {activeTasks
-                        .filter((t) =>
-                          (t.assigneeIds || t.assignedTo || []).includes(
-                            session.user.id,
-                          ),
-                        )
-                        .slice(0, 20)
-                        .map(taskCard)}
-                    </>
+                  <Text style={styles.muted}>
+                    {isSyncing
+                      ? "Je wijzigingen worden verstuurd."
+                      : queue.length
+                        ? `${queue.length} lokale wijzigingen; ${queue.filter((op) => op.status !== "pending").length} hebben je aandacht nodig.`
+                        : "Alle lokale wijzigingen zijn bevestigd."}
+                    {lastSynced
+                      ? " Laatste contact: " +
+                        new Date(lastSynced).toLocaleTimeString("nl-NL")
+                      : ""}
+                  </Text>
+                  {queue.some((op) => op.status !== "pending") && (
+                    <Button
+                      secondary
+                      label="Conflicten en bewaarde concepten oplossen"
+                      onPress={() => {
+                        setTab("Meer");
+                        setExtraPage("");
+                      }}
+                    />
                   )}
-                  {tiles.includes("urgent") && (
-                    <>
-                      <Text style={styles.section}>Urgent in het team</Text>
-                      {activeTasks
-                        .filter((t) =>
-                          ["critical", "high"].includes(t.priority),
-                        )
-                        .slice(0, 10)
-                        .map(taskCard)}
-                    </>
-                  )}
-                  {tiles.includes("overdue") && (
-                    <>
-                      <Text style={styles.section}>Achterstallig</Text>
-                      {activeTasks
-                        .filter(
-                          (task) =>
-                            task.deadline &&
-                            new Date(task.deadline) < new Date(),
-                        )
-                        .slice(0, 10)
-                        .map(taskCard)}
-                    </>
-                  )}
-                  {tiles.includes("inventory") && (
-                    <>
-                      <Text style={styles.section}>Lage voorraad</Text>
-                      {(data["inventory/items"] || [])
-                        .filter(
-                          (item) =>
-                            item.lowStock ||
-                            (data["inventory/balances"] || [])
-                              .filter((balance) => balance.itemId === item.id)
-                              .reduce(
-                                (sum, balance) =>
-                                  sum + Number(balance.quantity),
-                                0,
-                              ) < Number(item.minimum),
-                        )
-                        .slice(0, 10)
-                        .map((item) => (
-                          <Text key={item.id} style={styles.listItem}>
-                            {item.name} · onder minimum {item.minimum}
-                          </Text>
-                        ))}
-                    </>
-                  )}
-                  {tiles.includes("planning") && (
-                    <>
-                      <Text style={styles.section}>Komende afspraken</Text>
-                      {(data.schedules || [])
-                        .filter((row) => new Date(row.endsAt) > new Date())
-                        .slice(0, 5)
-                        .map((row) => (
-                          <Text key={row.id} style={styles.listItem}>
-                            {row.title} ·{" "}
-                            {new Date(row.startsAt).toLocaleString("nl-NL")}
-                          </Text>
-                        ))}
-                    </>
-                  )}
-                  {!tasks.length && (
+                  <Text style={styles.section}>Mijn taken vandaag</Text>
+                  {tasksForToday(tasks, session.user.id)
+                    .slice(0, 8)
+                    .map(taskCard)}
+                  {!tasksForToday(tasks, session.user.id).length && (
                     <Text style={styles.muted}>
-                      Nog geen taken beschikbaar. Maak een melding of
-                      synchroniseer.
+                      Geen taken voor vandaag. Een storing melden of scannen kan
+                      altijd.
                     </Text>
+                  )}
+                  <FavoritesPanel
+                    favorites={data["profile/favorites"] || []}
+                    catalogs={data}
+                    busy={busy}
+                    online={online}
+                    onUse={useFavorite}
+                    onToggle={(type, id, remove) =>
+                      void toggleFavorite(type, id, remove)
+                    }
+                  />
+                  <Button
+                    secondary
+                    label={
+                      showTeamSummary
+                        ? "Teamoverzicht sluiten"
+                        : "Teamoverzicht en overige tegels"
+                    }
+                    onPress={() => setShowTeamSummary(!showTeamSummary)}
+                  />
+                  {showTeamSummary && (
+                    <>
+                      {tiles.includes("mine") && (
+                        <>
+                          <Text style={styles.section}>Mijn werk</Text>
+                          {activeTasks
+                            .filter((t) =>
+                              (t.assigneeIds || t.assignedTo || []).includes(
+                                session.user.id,
+                              ),
+                            )
+                            .slice(0, 20)
+                            .map(taskCard)}
+                        </>
+                      )}
+                      {tiles.includes("urgent") && (
+                        <>
+                          <Text style={styles.section}>Urgent in het team</Text>
+                          {activeTasks
+                            .filter((t) =>
+                              ["critical", "high"].includes(t.priority),
+                            )
+                            .slice(0, 10)
+                            .map(taskCard)}
+                        </>
+                      )}
+                      {tiles.includes("overdue") && (
+                        <>
+                          <Text style={styles.section}>Achterstallig</Text>
+                          {activeTasks
+                            .filter(
+                              (task) =>
+                                task.deadline &&
+                                new Date(task.deadline) < new Date(),
+                            )
+                            .slice(0, 10)
+                            .map(taskCard)}
+                        </>
+                      )}
+                      {tiles.includes("inventory") && (
+                        <>
+                          <Text style={styles.section}>Lage voorraad</Text>
+                          {(data["inventory/items"] || [])
+                            .filter(
+                              (item) =>
+                                item.lowStock ||
+                                (data["inventory/balances"] || [])
+                                  .filter(
+                                    (balance) => balance.itemId === item.id,
+                                  )
+                                  .reduce(
+                                    (sum, balance) =>
+                                      sum + Number(balance.quantity),
+                                    0,
+                                  ) < Number(item.minimum),
+                            )
+                            .slice(0, 10)
+                            .map((item) => (
+                              <Text key={item.id} style={styles.listItem}>
+                                {item.name} · onder minimum {item.minimum}
+                              </Text>
+                            ))}
+                        </>
+                      )}
+                      {tiles.includes("planning") && (
+                        <>
+                          <Text style={styles.section}>Komende afspraken</Text>
+                          {(data.schedules || [])
+                            .filter((row) => new Date(row.endsAt) > new Date())
+                            .slice(0, 5)
+                            .map((row) => (
+                              <Text key={row.id} style={styles.listItem}>
+                                {row.title} ·{" "}
+                                {new Date(row.startsAt).toLocaleString("nl-NL")}
+                              </Text>
+                            ))}
+                        </>
+                      )}
+                      {!tasks.length && (
+                        <Text style={styles.muted}>
+                          Nog geen taken beschikbaar. Maak een melding of
+                          synchroniseer.
+                        </Text>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -1594,6 +2104,7 @@ export default function App() {
                   <Choices
                     values={{
                       all: "Alle",
+                      today: "Vandaag",
                       mine: "Mijn taken",
                       unassigned: "Niet toegewezen",
                       overdue: "Achterstallig",
@@ -1611,6 +2122,10 @@ export default function App() {
                     .filter(
                       (task) =>
                         taskView === "all" ||
+                        (taskView === "today" &&
+                          tasksForToday(tasks, session.user.id).some(
+                            (row) => row.id === task.id,
+                          )) ||
                         (taskView === "mine" &&
                           (task.assignedTo || []).includes(session.user.id)) ||
                         (taskView === "unassigned" &&
@@ -1987,6 +2502,9 @@ export default function App() {
                     session={session}
                     catalogs={data}
                     onRefresh={() => refresh(session)}
+                    pendingCount={queue.length}
+                    syncing={isSyncing}
+                    onDeleteAccount={deleteOwnAccount}
                   />
                 </>
               )}
@@ -2047,15 +2565,30 @@ export default function App() {
                   {queue.map((op) => (
                     <View style={styles.card} key={op.id}>
                       <Text style={styles.cardTitle}>
-                        {(op.payload.title as string) || op.path}
+                        {operationLabel(op)}
+                        {operationTaskId(op)
+                          ? " · " +
+                            (tasks.find(
+                              (task) => task.id === operationTaskId(op),
+                            )?.title || "Taak")
+                          : ""}
                       </Text>
                       <Text style={styles.meta}>
-                        {op.status === "pending"
-                          ? "Wacht op server"
-                          : op.status === "conflict"
-                            ? "Conflict — keuze nodig"
-                            : "Invoer corrigeren"}
+                        {syncingOperation === op.id
+                          ? "↻ Wordt verstuurd"
+                          : op.status === "pending"
+                            ? "◷ Lokaal bewaard; wacht op server"
+                            : op.status === "conflict"
+                              ? "Conflict — keuze nodig"
+                              : "Invoer corrigeren"}
                       </Text>
+                      {!!op.lastAttemptAt && (
+                        <Text style={styles.muted}>
+                          Laatste poging:{" "}
+                          {new Date(op.lastAttemptAt).toLocaleString("nl-NL")} ·{" "}
+                          {op.attempts || 0} poging(en)
+                        </Text>
+                      )}
                       {!!op.error && (
                         <Text style={styles.error}>{op.error}</Text>
                       )}
@@ -2067,15 +2600,19 @@ export default function App() {
                       )}
                       <Button
                         secondary
+                        disabled={isSyncing}
                         label="Concept bekijken / corrigeren"
                         onPress={() => {
                           setEditOp(op);
-                          setConflictCurrent(null);
+                          setConflictCurrent(
+                            (op.conflict as Row)?.current || null,
+                          );
                           setEditJson(JSON.stringify(op.payload, null, 2));
                         }}
                       />
                       <Button
                         secondary
+                        disabled={isSyncing}
                         label="Concept verwijderen"
                         onPress={() =>
                           Alert.alert(
@@ -2088,10 +2625,8 @@ export default function App() {
                                 style: "destructive",
                                 onPress: () =>
                                   void guard(async () => {
-                                    await queueRemove(op);
-                                    setQueue(
-                                      await queueRead(ownerKey(session)),
-                                    );
+                                    await mutateQueue(() => queueRemove(op));
+                                    if (editOp?.id === op.id) setEditOp(null);
                                   }),
                               },
                             ],
@@ -2135,12 +2670,14 @@ export default function App() {
                         }
                       />
                       <ConflictEditor
+                        key={editOp.id}
                         payload={JSON.parse(editJson)}
                         current={conflictCurrent}
                         catalogs={data}
                         onChange={(value) => setEditJson(JSON.stringify(value))}
                       />
                       <Button
+                        disabled={isSyncing}
                         label="Bewust opnieuw aanbieden"
                         onPress={() =>
                           void guard(async () => {
@@ -2166,7 +2703,9 @@ export default function App() {
                                 status: "pending" as const,
                                 error: undefined,
                               };
-                              await queueReplace(editOp, amended);
+                              await mutateQueue(() =>
+                                queueReplace(editOp, amended),
+                              );
                               setEditOp(null);
                               setQueue(await queueRead(ownerKey(session)));
                               await sync();

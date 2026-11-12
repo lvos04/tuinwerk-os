@@ -21,7 +21,7 @@ FROM node:22-alpine3.22 AS runtime
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
     apk add --no-cache postgresql17 postgresql17-client postgresql17-contrib supervisor nginx age bash util-linux coreutils tar python3 && mkdir -p /data /run/nginx
-ENV PG_MAJOR=17 PG_BIN=/usr/bin NODE_ENV=production PORT=3001 APP_URL=http://localhost:8080 UPLOAD_DIR=/data/uploads EXPORT_DIR=/data/exports MIGRATIONS_DIR=/app/api/migrations DATABASE_URL=postgresql://tuinwerk@127.0.0.1:5432/tuinwerk
+ENV APP_VERSION=0.2.0 PG_MAJOR=17 PG_BIN=/usr/bin NODE_ENV=production PORT=3001 APP_URL=http://localhost:8080 UPLOAD_DIR=/data/uploads EXPORT_DIR=/data/exports MIGRATIONS_DIR=/app/api/migrations DATABASE_URL=postgresql://tuinwerk@127.0.0.1:5432/tuinwerk
 COPY --from=build /runtime/ /
 EXPOSE 8080
 VOLUME ["/data"]

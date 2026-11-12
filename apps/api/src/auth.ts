@@ -229,7 +229,9 @@ export class AuthController {
 export class UsersController {
   @Get() async list() {
     return camel(
-      await query("SELECT id,email,name,role,active FROM users ORDER BY name"),
+      await query(
+        "SELECT id,email,name,role,active FROM users WHERE NOT system_account ORDER BY name",
+      ),
     );
   }
   @Post() @UseGuards(AdminGuard) async create(
@@ -292,7 +294,8 @@ export class UsersController {
       const old = (
         await c.query("SELECT * FROM users WHERE id=$1 FOR UPDATE", [id])
       ).rows[0];
-      if (!old) throw new NotFoundException("Gebruiker niet gevonden");
+      if (!old || old.system_account)
+        throw new NotFoundException("Gebruiker niet gevonden");
       const role = b.role ?? old.role,
         active = b.active ?? old.active;
       if (old.role === "admin" && old.active && (role !== "admin" || !active)) {

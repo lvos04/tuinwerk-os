@@ -152,6 +152,55 @@ function safeProviderError() {
     "OneDrive is niet bereikbaar of de machtiging is verlopen; controleer de verbinding in instellingen",
   );
 }
+const healthMessages: Record<string, string> = {
+  authorization_expired:
+    "Microsoft-aanmelding is verlopen; verbind OneDrive opnieuw.",
+  permission_required:
+    "Microsoft weigert de appmapmachtiging; controleer toestemming en verbind opnieuw.",
+  throttled:
+    "Microsoft begrenst tijdelijk het aantal verzoeken; de overdracht probeert later opnieuw.",
+  unreachable:
+    "Microsoft is tijdelijk niet bereikbaar; controleer de verbinding.",
+  quota:
+    "OneDrive heeft onvoldoende opslagruimte; maak ruimte vrij of pas de opslaglimiet aan.",
+};
+async function recordConnectionError(code: string) {
+  await query(
+    "UPDATE onedrive_connection SET health_error_code=$1,health_error_at=now(),health_checked_at=now() WHERE id=1",
+    [code],
+  );
+}
+export async function getOneDriveHealth() {
+  const cfg = await config();
+  const [connection] = await query<any>(
+    "SELECT * FROM onedrive_connection WHERE id=1",
+  );
+  const hasToken = !!(await readSecret("oneDriveRefreshToken"));
+  const connected =
+    !!connection &&
+    hasToken &&
+    connection.client_id === cfg.clientId &&
+    connection.tenant === cfg.tenant;
+  const code = connection?.health_error_code;
+  const [last] = await query<any>(
+    "SELECT max(completed_at) at FROM onedrive_transfers WHERE state='completed' AND direction='upload'",
+  );
+  return {
+    configured: UUID.test(cfg.clientId),
+    connected,
+    reauthenticationRequired:
+      !!code && ["authorization_expired", "permission_required"].includes(code),
+    lastError: code
+      ? {
+          code,
+          message: healthMessages[code] || healthMessages.unreachable,
+          at: connection.health_error_at,
+        }
+      : null,
+    lastSuccessfulTransfer: last?.at || null,
+    lastCheckedAt: connection?.health_checked_at || null,
+  };
+}
 async function accessToken(): Promise<string> {
   return transaction(async (c) => {
     await c.query("SELECT pg_advisory_xact_lock(hashtext('onedrive-control'))");
@@ -188,8 +237,22 @@ async function accessToken(): Promise<string> {
       grant_type: "refresh_token",
       refresh_token: current,
       scope: SCOPES,
+    }).catch(async () => {
+      await recordConnectionError("unreachable");
+      throw safeProviderError();
     });
     if (!response.ok || typeof data.access_token !== "string") {
+      await recordConnectionError(
+        [
+          "invalid_grant",
+          "invalid_client",
+          "unauthorized_client",
+          "interaction_required",
+          "consent_required",
+        ].includes(data.error)
+          ? "authorization_expired"
+          : "unreachable",
+      );
       accessCache = undefined;
       throw safeProviderError();
     }
@@ -203,6 +266,9 @@ async function accessToken(): Promise<string> {
       refreshHash: fingerprint(next),
       config: configKey,
     };
+    await c.query(
+      "UPDATE onedrive_connection SET health_error_code=NULL,health_error_at=NULL,health_checked_at=now() WHERE id=1",
+    );
     return data.access_token;
   });
 }
@@ -217,7 +283,14 @@ async function graph(path: string, init: RequestInit = {}): Promise<Response> {
     headers: { Authorization: `Bearer ${token}`, ...init.headers },
     signal: timed(init.signal, 30000),
   });
-  if (response.status === 401) accessCache = undefined;
+  if (response.status === 401) {
+    accessCache = undefined;
+    await recordConnectionError("authorization_expired");
+  } else if (response.status === 403)
+    await recordConnectionError("permission_required");
+  else if (response.status === 429) await recordConnectionError("throttled");
+  else if (response.status === 507) await recordConnectionError("quota");
+  else if (response.status >= 500) await recordConnectionError("unreachable");
   return response;
 }
 export function trustedTransferUrl(value: string): URL {
@@ -781,6 +854,71 @@ export async function downloadOneDriveBackup(
   }
 }
 
+/** Explicit administrator test only: writes a unique tiny file inside our appfolder and removes exactly that file. */
+export async function probeOneDrive() {
+  const folderId = await driveFolder(),
+    name = `tuinwerk-probe-${randomUUID()}.txt`,
+    body = `TuinWerk verbindingscontrole ${randomUUID()}`;
+  let remoteId: string | undefined,
+    writeAttempted = false,
+    verified = false,
+    cleaned = false;
+  try {
+    writeAttempted = true;
+    const written = await graph(
+      `/me/drive/items/${encodeURIComponent(folderId)}:/${name}:/content`,
+      { method: "PUT", headers: { "Content-Type": "text/plain" }, body },
+    );
+    if (!written.ok) throw safeProviderError();
+    const item = await json(written);
+    if (typeof item.id !== "string") throw safeProviderError();
+    remoteId = item.id;
+    const read = await contentResponse(folderId, name);
+    if (!read.ok || !read.body) throw safeProviderError();
+    const reader = read.body.getReader();
+    let contents = "";
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        contents += Buffer.from(next.value).toString("utf8");
+        if (contents.length > 1024) {
+          await reader.cancel();
+          throw safeProviderError();
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (contents !== body) throw safeProviderError();
+    verified = true;
+  } finally {
+    if (writeAttempted) {
+      try {
+        const cleanup = await graph(
+          remoteId
+            ? `/me/drive/items/${encodeURIComponent(remoteId)}`
+            : `/me/drive/items/${encodeURIComponent(folderId)}:/${name}`,
+          { method: "DELETE" },
+        );
+        cleaned = cleanup.ok || cleanup.status === 404;
+      } catch {}
+      if (!cleaned)
+        throw new ServiceUnavailableException(
+          "De OneDrive-controle is niet voltooid: het tijdelijke testbestand kon niet worden verwijderd. Controleer de appmap en probeer opnieuw.",
+        );
+    }
+  }
+  if (!verified || !cleaned) throw safeProviderError();
+  await query(
+    "UPDATE onedrive_connection SET health_error_code=NULL,health_error_at=NULL,health_checked_at=now() WHERE id=1",
+  );
+  return {
+    message: "Testbestand geschreven, teruggelezen en verwijderd.",
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 @Controller("admin/onedrive")
 @UseGuards(AuthGuard, AdminGuard)
 export class OneDriveController {
@@ -789,20 +927,14 @@ export class OneDriveController {
     const [connection] = await query<any>(
       "SELECT client_id,tenant,drive_type,account_name,connected_at FROM onedrive_connection WHERE id=1",
     );
-    const hasToken = !!(await readSecret("oneDriveRefreshToken"));
     return {
-      configured: UUID.test(cfg.clientId),
-      connected:
-        !!connection &&
-        hasToken &&
-        connection.client_id === cfg.clientId &&
-        connection.tenant === cfg.tenant,
       clientId: cfg.clientId,
       tenant: cfg.tenant,
       folder: cfg.folder,
       account: connection?.account_name || null,
       driveType: connection?.drive_type || null,
       connectedAt: connection?.connected_at || null,
+      ...(await getOneDriveHealth()),
     };
   }
   @Put("config") async configure(@CurrentUser() user: User, @Body() body: any) {

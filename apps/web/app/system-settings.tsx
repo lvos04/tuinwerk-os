@@ -554,6 +554,24 @@ const sections: {
     fields: [
       { key: "companyName", label: "Bedrijfsnaam" },
       {
+        key: "supportEmail",
+        label: "E-mailadres voor ondersteuning",
+        kind: "email",
+        help: "Gebruik een echt bereikbaar adres van je organisatie; dit wordt op de publieke hulppagina getoond.",
+      },
+      {
+        key: "privacyContactEmail",
+        label: "E-mailadres voor privacyvragen",
+        kind: "email",
+        help: "Dit contactadres verschijnt in het privacybeleid.",
+      },
+      {
+        key: "privacyRetentionDescription",
+        label: "Bewaartermijnen en verwijderbeleid",
+        kind: "textarea",
+        help: "Beschrijf de daadwerkelijke bewaartermijnen van je organisatie. Deze tekst wordt openbaar in het privacybeleid gepubliceerd.",
+      },
+      {
         key: "appUrl",
         label: "Adres van TuinWerk",
         kind: "url",
@@ -716,16 +734,20 @@ export function ApplicationSettings({
   api,
   onSecurity,
   onChanged,
+  sectionIds,
+  title = "Instellingen van je werkomgeving",
 }: {
   api: SettingsApi;
   onSecurity: () => void;
   onChanged?: () => void;
+  sectionIds?: string[];
+  title?: string;
 }) {
   const [snapshot, setSnapshot] = useState<SettingsRow | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
-    [section, setSection] = useState("general");
+    [section, setSection] = useState(sectionIds?.[0] || "general");
   const load = async () => setSnapshot(await api("/settings"));
   useEffect(() => {
     void load().catch((e) => setError(e.message));
@@ -785,21 +807,23 @@ export function ApplicationSettings({
   };
   return (
     <section className="panel padded system-section">
-      <h2>Instellingen van je werkomgeving</h2>
+      <h2>{title}</h2>
       <div className="tabs settings-tabs">
-        {sections.map((s) => (
-          <button
-            className={section === s.id ? "active" : ""}
-            key={s.id}
-            onClick={() => {
-              setSection(s.id);
-              setError("");
-              setNotice("");
-            }}
-          >
-            {s.title}
-          </button>
-        ))}
+        {sections
+          .filter((s) => !sectionIds || sectionIds.includes(s.id))
+          .map((s) => (
+            <button
+              className={section === s.id ? "active" : ""}
+              key={s.id}
+              onClick={() => {
+                setSection(s.id);
+                setError("");
+                setNotice("");
+              }}
+            >
+              {s.title}
+            </button>
+          ))}
         <button onClick={onSecurity}>Beveiliging</button>
       </div>
       {error && (

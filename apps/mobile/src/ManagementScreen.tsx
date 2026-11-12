@@ -1,3 +1,5 @@
+import { IntegrationChecks } from "./IntegrationChecks";
+import { ModerationScreen } from "./ModerationScreen";
 import React, { useEffect, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import * as Crypto from "expo-crypto";
@@ -6,6 +8,7 @@ import * as Sharing from "expo-sharing";
 import * as DocumentPicker from "expo-document-picker";
 import { Session, authorizedRequest } from "./api";
 import { ServerSettingsScreen } from "./ServerSettingsScreen";
+import { AccountScreen } from "./AccountScreen";
 import {
   NativeButton as Button,
   NativeField as Field,
@@ -17,10 +20,20 @@ export function ManagementScreen({
   session,
   catalogs,
   onRefresh,
+  pendingCount = 0,
+  syncing = false,
+  onDeleteAccount,
 }: {
   session: Session;
   catalogs: Record<string, Row[]>;
   onRefresh: () => Promise<void>;
+  pendingCount?: number;
+  syncing?: boolean;
+  onDeleteAccount?: (input: {
+    password: string;
+    otp?: string;
+    confirmation: string;
+  }) => Promise<void>;
 }) {
   const [page, setPage] = useState("reports"),
     [error, setError] = useState(""),
@@ -178,11 +191,16 @@ export function ManagementScreen({
           ai: "Taakvoorstel",
           catalog: "Machines / locaties / artikelen",
           preferences: "Voorkeuren",
+          account: "Mijn account en privacy",
+          moderation: "Meldingen beoordelen",
           sessions: "Apparaten",
           ...(session.user.role === "admin"
             ? {
                 admin: "Beheer",
-                server: "Server en back-ups",
+                company: "Bedrijf",
+                integrations: "Integraties",
+                backups: "Back-ups",
+                security: "Beveiliging",
                 imports: "Import",
                 mfa: "Tweede factor",
               }
@@ -676,8 +694,48 @@ export function ManagementScreen({
           )}
         </>
       )}
-      {page === "server" && session.user.role === "admin" && (
-        <ServerSettingsScreen session={session} />
+      {page === "moderation" && <ModerationScreen session={session} />}
+      {page === "account" && onDeleteAccount && (
+        <AccountScreen
+          session={session}
+          pendingCount={pendingCount}
+          syncing={syncing}
+          onDelete={onDeleteAccount}
+        />
+      )}
+      {page === "integrations" && session.user.role === "admin" && (
+        <IntegrationChecks session={session} />
+      )}
+      {["company", "integrations", "backups"].includes(page) &&
+        session.user.role === "admin" && (
+          <ServerSettingsScreen
+            key={page}
+            session={session}
+            initialSection={
+              page === "company"
+                ? "general"
+                : page === "integrations"
+                  ? "mail"
+                  : "backups"
+            }
+          />
+        )}
+      {page === "security" && session.user.role === "admin" && (
+        <View style={s.card}>
+          <Text style={s.title}>Beveiliging</Text>
+          <Button
+            label="Tweede factor beheren"
+            onPress={() => setPage("mfa")}
+          />
+          <Button
+            label="Aangemelde apparaten"
+            onPress={() => setPage("sessions")}
+          />
+          <Button
+            label="Mijn account en privacy"
+            onPress={() => setPage("account")}
+          />
+        </View>
       )}
       {page === "admin" && session.user.role === "admin" && (
         <>
@@ -1091,8 +1149,8 @@ export function ManagementScreen({
           {aiStatus?.enabled && (
             <>
               <Text>
-                Provider: {aiStatus.provider} · model: {aiStatus.model}. Alleen
-                de tekst hieronder wordt na jouw bevestiging gedeeld.
+                Provider: {aiStatus.providerOrigin} · model: {aiStatus.model}.
+                Alleen de tekst hieronder wordt na jouw bevestiging gedeeld.
               </Text>
               <Field
                 label="Tekst voor voorstel (maximaal 4000 tekens)"
@@ -1104,26 +1162,54 @@ export function ManagementScreen({
                 disabled={busy}
                 label="Tekst controleren en met provider delen"
                 onPress={() =>
-                  Alert.alert(
-                    "Externe AI-overdracht bevestigen",
-                    `Deze tekst wordt verstuurd naar ${aiStatus.provider}:\n\n${aiText}`,
-                    [
-                      { text: "Annuleren", style: "cancel" },
-                      {
-                        text: "Versturen",
-                        onPress: () =>
-                          void run(async () => {
-                            const result = await authorizedRequest(
-                              session,
-                              "/ai/suggest",
-                              "POST",
-                              { text: aiText, consent: true },
-                            );
-                            setAiSuggestion(result.suggestion);
-                          }),
-                      },
-                    ],
-                  )
+                  void run(async () => {
+                    const status = await authorizedRequest(
+                      session,
+                      "/ai/status",
+                    );
+                    setAiStatus(status);
+                    if (
+                      !status.enabled ||
+                      !status.providerOrigin ||
+                      !status.providerConfigId
+                    )
+                      throw new Error("De AI-provider is niet beschikbaar.");
+                    const text = aiText;
+                    Alert.alert(
+                      "Externe AI-overdracht bevestigen",
+                      `Provider: ${status.providerOrigin}\nModel: ${status.model}\nDoel: ${status.purpose}\nGedeeld: ${(status.sharedFields || []).join(", ")}\n\nDeze tekst wordt gedeeld:\n${text}`,
+                      [
+                        { text: "Annuleren", style: "cancel" },
+                        {
+                          text: "Versturen",
+                          onPress: () =>
+                            void run(async () => {
+                              try {
+                                const result = await authorizedRequest(
+                                  session,
+                                  "/ai/suggest",
+                                  "POST",
+                                  {
+                                    text,
+                                    consent: true,
+                                    providerConfigId: status.providerConfigId,
+                                  },
+                                );
+                                setAiSuggestion(result.suggestion);
+                              } catch (error) {
+                                setAiStatus(
+                                  await authorizedRequest(
+                                    session,
+                                    "/ai/status",
+                                  ).catch(() => null),
+                                );
+                                throw error;
+                              }
+                            }),
+                        },
+                      ],
+                    );
+                  })
                 }
               />
               {aiSuggestion && (

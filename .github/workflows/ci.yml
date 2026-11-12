@@ -34,6 +34,7 @@ jobs:
       - run: npm audit --audit-level=high
       - run: npm run migrate --workspace=@tuinwerk/api
       - run: npm run typecheck --workspaces --if-present
+      - run: node scripts/mobile-release.mjs
       - run: npm test --workspaces --if-present
       - run: npm run build --workspace=@tuinwerk/api
       - run: npm run build --workspace=@tuinwerk/web

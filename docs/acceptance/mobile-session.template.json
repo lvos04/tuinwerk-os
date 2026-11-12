@@ -1,0 +1,29 @@
+{
+  "format": "tuinwerk-mobile-acceptance-v1",
+  "platform": null,
+  "physicalDevice": false,
+  "device": { "label": null, "model": null, "osVersion": null },
+  "build": { "gitCommit": null, "appVersion": "0.2.0", "buildNumber": null, "storeTrack": null, "artifactReference": null },
+  "backend": { "url": null, "release": null, "isolatedDataset": true },
+  "tester": null,
+  "startedAt": null,
+  "finishedAt": null,
+  "offline": { "disconnectedAt": null, "reconnectedAt": null, "queueCountBeforeRestart": null, "queueCountAfterRestart": null, "unresolvedConflictsAfterReview": null },
+  "stockRace": { "initial": 1, "acceptedOperations": null, "rejectedOperations": null, "final": null },
+  "cases": [
+    { "id": "install_upgrade", "result": "pending", "evidence": [] },
+    { "id": "login_refresh_logout_isolation", "result": "pending", "evidence": [] },
+    { "id": "quick_report_camera_qr", "result": "pending", "evidence": [] },
+    { "id": "photo_annotation_upload_retry", "result": "pending", "evidence": [] },
+    { "id": "offline_relaunch", "result": "pending", "evidence": [] },
+    { "id": "offline_24h", "result": "pending", "evidence": [] },
+    { "id": "task_conflict_independent_sync", "result": "pending", "evidence": [] },
+    { "id": "last_part_concurrency", "result": "pending", "evidence": [] },
+    { "id": "permissions_and_biometrics", "result": "pending", "evidence": [] },
+    { "id": "push_recipient_and_navigation", "result": "pending", "evidence": [] },
+    { "id": "account_deletion", "result": "pending", "evidence": [] },
+    { "id": "export_and_restore_interface", "result": "pending", "evidence": [] },
+    { "id": "accessibility_and_large_text", "result": "pending", "evidence": [] }
+  ],
+  "notes": "Untested template. Do not mark passed without an actual physical-device run and retained evidence."
+}

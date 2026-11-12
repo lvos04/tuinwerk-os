@@ -14,6 +14,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
   ForbiddenException,
+  ConflictException,
 } from "@nestjs/common";
 import type { Response } from "express";
 import ExcelJS from "exceljs";
@@ -25,6 +26,7 @@ import { resolve } from "node:path";
 import { query, transaction, camel, audit } from "./db";
 import { AuthGuard, AdminGuard, CurrentUser, User } from "./auth";
 import { deliverNotifications } from "./notification-delivery";
+import { containsProhibitedText } from "./moderation";
 import {
   parseCsv,
   validateXlsxArchive,
@@ -33,6 +35,45 @@ import {
   validQuietTime,
   reportFilters,
 } from "./reporting-utils";
+
+function aiConfiguration() {
+  return {
+    enabled: process.env.AI_ENABLED === "true",
+    baseUrl: process.env.AI_BASE_URL || "",
+    model: process.env.AI_MODEL || "",
+    apiKey: process.env.AI_API_KEY || "",
+    tokenBudget: process.env.AI_DAILY_TOKEN_BUDGET || "10000",
+    inputPrice: process.env.AI_INPUT_EUR_PER_MILLION || "0",
+    outputPrice: process.env.AI_OUTPUT_EUR_PER_MILLION || "0",
+    euroBudget: process.env.AI_DAILY_BUDGET_EUR || "0",
+  };
+}
+function aiPublicStatus(config = aiConfiguration()) {
+  let providerOrigin: string | null = null;
+  try {
+    const u = new URL(config.baseUrl);
+    if (
+      u.protocol === "https:" &&
+      !u.username &&
+      !u.password &&
+      !u.search &&
+      !u.hash
+    )
+      providerOrigin = u.origin;
+  } catch {}
+  return {
+    enabled: config.enabled,
+    provider: providerOrigin,
+    providerOrigin,
+    model: config.model || null,
+    sharedFields: ["ingevoerde tekst"],
+    purpose: "Een voorstel voor een onderhoudstaak en checklist maken.",
+    providerConfigId: createHash("sha256")
+      .update(JSON.stringify([config.baseUrl, config.model]))
+      .digest("hex"),
+    requiresConsent: true,
+  };
+}
 
 type ImportRow = {
   line: number;
@@ -363,7 +404,7 @@ export class ReportingController {
     if (!tables[type]) throw new BadRequestException("Onbekend QR-type");
     uuid(id);
     const [row] = await query<any>(
-      `SELECT * FROM ${tables[type]} WHERE id=$1`,
+      `SELECT * FROM ${tables[type]} WHERE id=$1${type === "task" ? " AND moderation_hidden=false" : ""}`,
       [id],
     );
     if (!row) throw new NotFoundException();
@@ -451,6 +492,9 @@ export class ReportingController {
       );
     if (b.locationId) uuid(b.locationId);
     const seen = new Set<string>();
+    const [policy] = await query<any>(
+      "SELECT prohibited_phrases FROM moderation_settings WHERE id=1",
+    );
     const rows: ImportRow[] = [];
     for (const [index, cols] of grid.entries()) {
       if (ty >= 0 && cols[ty] && cols[ty].toLowerCase() !== "task") continue;
@@ -489,6 +533,14 @@ export class ReportingController {
         r.error = "Titel ontbreekt of is langer dan 300 tekens";
       else if (rawDate && !deadline)
         r.error = "Datum niet herkenbaar; gebruik ISO-datum";
+      if (
+        containsProhibitedText(
+          [r.title, r.description, r.category].join(" "),
+          policy?.prohibited_phrases || [],
+        )
+      )
+        r.error =
+          "Inhoud is niet toegestaan volgens de werkruimte-instellingen";
       r.duplicate = seen.has(key);
       if (!r.error) seen.add(key);
       rows.push(r);
@@ -532,10 +584,21 @@ export class ReportingController {
         throw new BadRequestException("Gebruik de catalogus-importbevestiging");
       if (imp.state === "completed") return imp.report;
       const report = { imported: 0, skipped: 0, invalid: 0 };
+      const [policy] = (
+        await c.query(
+          "SELECT prohibited_phrases FROM moderation_settings WHERE id=1 FOR SHARE",
+        )
+      ).rows;
       for (const row of (imp.rows as ImportRow[]).sort((a, b) =>
         a.sourceKey.localeCompare(b.sourceKey),
       )) {
-        if (row.error) {
+        if (
+          row.error ||
+          containsProhibitedText(
+            [row.title, row.description, row.category].join(" "),
+            policy?.prohibited_phrases || [],
+          )
+        ) {
           report.invalid++;
           continue;
         }
@@ -589,7 +652,7 @@ export class ReportingController {
   @Get("notifications") async notifications(@CurrentUser() user: User) {
     return (
       await query<any>(
-        "SELECT n.* FROM notifications n LEFT JOIN notification_preferences p ON p.user_id=n.user_id WHERE n.user_id=$1 AND coalesce(p.in_app,true) ORDER BY n.created_at DESC LIMIT 100",
+        "SELECT n.* FROM notifications n LEFT JOIN notification_preferences p ON p.user_id=n.user_id WHERE n.user_id=$1 AND n.moderation_hidden=false AND coalesce(p.in_app,true) ORDER BY n.created_at DESC LIMIT 100",
         [user.id],
       )
     ).map(camel);
@@ -600,11 +663,31 @@ export class ReportingController {
   ) {
     uuid(id);
     const [row] = await query<any>(
-      "UPDATE notifications SET read_at=coalesce(read_at,now()) WHERE id=$1 AND user_id=$2 RETURNING *",
+      "UPDATE notifications SET read_at=coalesce(read_at,now()) WHERE id=$1 AND user_id=$2 AND moderation_hidden=false RETURNING *",
       [id, user.id],
     );
     if (!row) throw new NotFoundException();
     return camel(row);
+  }
+  @Patch("notifications/batches/:id/read") async readBatch(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ) {
+    uuid(id);
+    return transaction(async (c) => {
+      const batch = (
+        await c.query(
+          "SELECT id FROM notification_batches WHERE id=$1 AND user_id=$2",
+          [id, user.id],
+        )
+      ).rows[0];
+      if (!batch) throw new NotFoundException();
+      const result = await c.query(
+        "UPDATE notifications n SET read_at=coalesce(n.read_at,now()) FROM notification_deliveries d WHERE d.notification_id=n.id AND d.batch_id=$1 AND n.user_id=$2 AND n.moderation_hidden=false",
+        [id, user.id],
+      );
+      return { read: result.rowCount };
+    });
   }
   @Get("notifications/preferences") async preferences(
     @CurrentUser() user: User,
@@ -631,8 +714,17 @@ export class ReportingController {
     for (const key of ["inApp", "push", "email", "criticalOverride", "weekly"])
       if (typeof b[key] !== "boolean")
         throw new BadRequestException(`${key} moet waar/onwaar zijn`);
+    if (
+      b.digestMinutes !== undefined &&
+      (!Number.isInteger(b.digestMinutes) ||
+        b.digestMinutes < 0 ||
+        b.digestMinutes > 60)
+    )
+      throw new BadRequestException(
+        "Bundeltijd moet tussen 0 en 60 minuten liggen",
+      );
     await query(
-      "INSERT INTO notification_preferences(user_id,in_app,push,email,quiet_start,quiet_end,critical_override,weekly) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(user_id) DO UPDATE SET in_app=$2,push=$3,email=$4,quiet_start=$5,quiet_end=$6,critical_override=$7,weekly=$8,updated_at=now()",
+      "INSERT INTO notification_preferences(user_id,in_app,push,email,quiet_start,quiet_end,critical_override,weekly,digest_minutes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9,5)) ON CONFLICT(user_id) DO UPDATE SET in_app=$2,push=$3,email=$4,quiet_start=$5,quiet_end=$6,critical_override=$7,weekly=$8,digest_minutes=coalesce($9,notification_preferences.digest_minutes),updated_at=now()",
       [
         user.id,
         b.inApp,
@@ -642,6 +734,7 @@ export class ReportingController {
         b.quietEnd,
         b.criticalOverride,
         b.weekly,
+        b.digestMinutes ?? null,
       ],
     );
     return this.preferences(user);
@@ -682,15 +775,13 @@ export class ReportingController {
     return { ok: true };
   }
   @Get("ai/status") aiStatus() {
-    return {
-      enabled: process.env.AI_ENABLED === "true",
-      provider: process.env.AI_BASE_URL || null,
-      model: process.env.AI_MODEL || null,
-      requiresConsent: true,
-    };
+    return aiPublicStatus();
   }
   @Post("ai/suggest") async suggest(@CurrentUser() user: User, @Body() b: any) {
-    if (process.env.AI_ENABLED !== "true")
+    // Capture the complete provider configuration synchronously before awaits, so key/model cannot switch underneath an approved request.
+    const config = aiConfiguration();
+    const publicStatus = aiPublicStatus(config);
+    if (!config.enabled)
       throw new ServiceUnavailableException("AI is uitgeschakeld");
     if (b.consent !== true)
       throw new BadRequestException(
@@ -698,24 +789,26 @@ export class ReportingController {
       );
     if (typeof b.text !== "string" || !b.text.trim() || b.text.length > 4000)
       throw new BadRequestException("Voer maximaal 4000 tekens in");
-    if (
-      !process.env.AI_API_KEY ||
-      !process.env.AI_BASE_URL ||
-      !process.env.AI_MODEL
-    )
+    if (!config.apiKey || !config.baseUrl || !config.model)
       throw new ServiceUnavailableException(
         "AI-provider is niet geconfigureerd",
       );
-    const url = new URL(process.env.AI_BASE_URL);
-    if (url.protocol !== "https:")
-      throw new ServiceUnavailableException("AI-provider vereist HTTPS");
-    const cap = Number(process.env.AI_DAILY_TOKEN_BUDGET || 10000);
+    if (!publicStatus.providerOrigin)
+      throw new ServiceUnavailableException(
+        "AI-provider vereist een geldige HTTPS-URL zonder ingebedde geheimen",
+      );
+    if (b.providerConfigId !== publicStatus.providerConfigId)
+      throw new ConflictException(
+        "AI-provider of model is gewijzigd; bekijk de actuele ontvanger en geef opnieuw toestemming",
+      );
+    const url = new URL(config.baseUrl);
+    const cap = Number(config.tokenBudget);
     if (!Number.isFinite(cap) || cap < 1)
       throw new ServiceUnavailableException("AI-budget niet geldig");
     const units = 5000;
-    const inputPrice = Number(process.env.AI_INPUT_EUR_PER_MILLION || 0),
-      outputPrice = Number(process.env.AI_OUTPUT_EUR_PER_MILLION || 0),
-      euroCap = Number(process.env.AI_DAILY_BUDGET_EUR || 0);
+    const inputPrice = Number(config.inputPrice),
+      outputPrice = Number(config.outputPrice),
+      euroCap = Number(config.euroBudget);
     if (
       !Number.isFinite(inputPrice) ||
       inputPrice <= 0 ||
@@ -749,6 +842,8 @@ export class ReportingController {
       await audit(c, user.id, "ai", r.id, "consent", {
         characters: b.text.length,
         provider: url.origin,
+        providerConfigId: publicStatus.providerConfigId,
+        sharedFields: publicStatus.sharedFields,
       });
       return r.id;
     });
@@ -759,10 +854,10 @@ export class ReportingController {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.AI_API_KEY}`,
+            Authorization: `Bearer ${config.apiKey}`,
           },
           body: JSON.stringify({
-            model: process.env.AI_MODEL,
+            model: config.model,
             max_tokens: 500,
             messages: [
               {

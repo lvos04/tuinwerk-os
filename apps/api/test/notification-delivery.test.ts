@@ -38,7 +38,10 @@ test("Expo push sends data and rejects provider ticket errors", async () => {
   const request: any = async (url: string, opts: any) => {
     assert.equal(url, "https://exp.host/--/api/v2/push/send");
     payload = JSON.parse(opts.body);
-    return { ok: true, json: async () => ({ data: [{ status: "ok" }] }) };
+    return {
+      ok: true,
+      json: async () => ({ data: [{ status: "ok", id: "mock-ticket" }] }),
+    };
   };
   await sendExpoPush(
     ["ExpoPushToken[test]"],

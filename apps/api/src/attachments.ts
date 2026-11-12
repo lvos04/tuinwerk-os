@@ -1,3 +1,4 @@
+import { moderateText } from "./moderation";
 import {
   BadRequestException,
   Body,
@@ -67,7 +68,7 @@ export class AttachmentsController {
       await query(
         "SELECT id,task_id,asset_id,uploaded_by,name,mime_type,size,hash,phase,annotation,version,created_at FROM attachments WHERE " +
           (q.taskId ? "task_id" : "asset_id") +
-          "=$1 ORDER BY created_at",
+          "=$1 AND NOT moderation_hidden AND NOT EXISTS(SELECT 1 FROM tasks t WHERE t.id=attachments.task_id AND t.moderation_hidden) ORDER BY created_at",
         [uuid(q.taskId || q.assetId)],
       ),
     );
@@ -80,6 +81,7 @@ export class AttachmentsController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException("Bestand verplicht");
+    await moderateText(file.originalname);
     if (!b.taskId && !b.assetId)
       throw new BadRequestException("Taak of machine verplicht");
     if (b.taskId) uuid(b.taskId);
@@ -90,9 +92,10 @@ export class AttachmentsController {
     return idempotent(u, operation, "attachments:create", async (c) => {
       if (b.taskId) {
         const [t] = (
-          await c.query("SELECT status FROM tasks WHERE id=$1 FOR SHARE", [
-            b.taskId,
-          ])
+          await c.query(
+            "SELECT status FROM tasks WHERE id=$1 AND NOT moderation_hidden FOR SHARE",
+            [b.taskId],
+          )
         ).rows;
         if (!t) throw new NotFoundException();
         if (t.status === "archived")
@@ -134,9 +137,10 @@ export class AttachmentsController {
     });
   }
   @Get(":id/file") async file(@Param("id") id: string, @Res() res: Response) {
-    const [r] = await query("SELECT * FROM attachments WHERE id=$1", [
-      uuid(id),
-    ]);
+    const [r] = await query(
+      "SELECT * FROM attachments WHERE id=$1 AND NOT moderation_hidden AND NOT EXISTS(SELECT 1 FROM tasks t WHERE t.id=attachments.task_id AND t.moderation_hidden)",
+      [uuid(id)],
+    );
     if (!r) throw new NotFoundException();
     res.setHeader("Content-Type", r.mime_type);
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -157,10 +161,11 @@ export class AttachmentsController {
       JSON.stringify(b.annotation).length > 100000
     )
       throw new BadRequestException("Annotatie te groot");
+    await moderateText(JSON.stringify(b.annotation));
     return idempotent(u, b, "annotation:" + id, async (c) => {
       const [r] = (
         await c.query(
-          "UPDATE attachments SET annotation=$1,version=version+1 WHERE id=$2 AND version=$3 RETURNING id,annotation,version",
+          "UPDATE attachments SET annotation=$1,version=version+1 WHERE id=$2 AND version=$3 AND NOT moderation_hidden AND NOT EXISTS(SELECT 1 FROM tasks t WHERE t.id=attachments.task_id AND t.moderation_hidden) RETURNING id,annotation,version",
           [JSON.stringify(b.annotation), uuid(id), b.version],
         )
       ).rows;

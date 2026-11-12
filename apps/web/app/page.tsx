@@ -43,6 +43,14 @@ import {
   OneDriveConnection,
 } from "./system-settings";
 import { BackupPanel } from "./backup-panel";
+import { Administration } from "./administration";
+import { ReportContent } from "./moderation";
+import { AccountPrivacy } from "./account-privacy";
+import {
+  FavoriteShortcuts,
+  CapacityPlanning,
+  TaskWorkbench,
+} from "./productivity";
 type Row = Record<string, any>;
 const statuses: Record<string, string> = {
   open: "Open",
@@ -137,6 +145,10 @@ function Workspace() {
     [balances, setBalances] = useState<Row[]>([]),
     [sessions, setSessions] = useState<Row[]>([]);
   const [connectionRevision, setConnectionRevision] = useState(0);
+  const [taskContext, setTaskContext] = useState<Row | null>(null);
+  useEffect(() => {
+    if (dialog !== "task") setTaskContext(null);
+  }, [dialog]);
   const refreshFlight = useRef<Promise<string> | null>(null);
   const deepLinkHandled = useRef(false);
   const [annotationTarget, setAnnotationTarget] = useState<Row | null>(null),
@@ -395,7 +407,7 @@ function Workspace() {
   };
   const openTask = async (t: Row) => {
     setSelected(t);
-    setDetailTab("details");
+    setDetailTab("work");
     setDialog("taskDetail");
     setComments([]);
     try {
@@ -423,6 +435,11 @@ function Workspace() {
     const params = new URLSearchParams(window.location.search),
       type = params.get("type"),
       id = params.get("id");
+    if (params.get("account") === "privacy") {
+      deepLinkHandled.current = true;
+      setDialog("profilePrefs");
+      return;
+    }
     if (!type || !id) return;
     deepLinkHandled.current = true;
     run(async () => {
@@ -577,6 +594,11 @@ function Workspace() {
             <p className="muted">
               Nog geen account? Je beheerder kan je toegang geven.
             </p>
+            <div className="public-links">
+              <a href="/privacy">Privacybeleid</a>
+              <a href="/support">Hulp en contact</a>
+              <a href="/account-deletion">Account verwijderen</a>
+            </div>
           </div>
         </section>
       </main>
@@ -799,6 +821,28 @@ function Workspace() {
           </div>
           {page === "dashboard" && (
             <>
+              <FavoriteShortcuts
+                api={api}
+                assets={assets}
+                locations={locations}
+                onUse={(favorite) => {
+                  const asset = assets.find((a) => a.id === favorite.id);
+                  setSelected(null);
+                  setTaskContext(
+                    favorite.type === "asset"
+                      ? {
+                          assetId: favorite.id,
+                          locationId: asset?.locationId || "",
+                        }
+                      : { locationId: favorite.id },
+                  );
+                  setDialog("task");
+                }}
+                onCreated={async (task) => {
+                  await reload();
+                  await openTask(task);
+                }}
+              />
               <div className="stats">
                 {[
                   [
@@ -1138,6 +1182,7 @@ function Workspace() {
                     ["team", "Teamplanning"],
                     ["year", "Jaarplanning"],
                     ["calendar", "Kalender"],
+                    ["capacity", "Capaciteit"],
                     ["maintenance", "Onderhoud"],
                   ].map(([id, label]) => (
                     <button
@@ -1165,7 +1210,14 @@ function Workspace() {
                   <RefreshCw size={16} /> Herhaling toevoegen
                 </button>
               </div>
-              {view === "calendar" ? (
+              {view === "capacity" ? (
+                <CapacityPlanning
+                  api={api}
+                  user={user}
+                  users={users}
+                  onOpenTask={openTask}
+                />
+              ) : view === "calendar" ? (
                 <Calendar
                   schedules={schedules}
                   onEdit={(s) => {
@@ -1588,21 +1640,26 @@ function Workspace() {
             </>
           )}
           {page === "settings" && (
-            <>
-              <ApplicationSettings
-                api={api}
-                onSecurity={() => setDialog("advanced")}
-                onChanged={() => setConnectionRevision((value) => value + 1)}
-              />
-              <OneDriveConnection
-                api={api}
-                onChanged={() => setConnectionRevision((value) => value + 1)}
-              />
-              <BackupPanel
-                api={api}
-                token={token}
-                connectionRevision={connectionRevision}
-              />
+            <Administration
+              api={api}
+              token={token}
+              user={user}
+              users={users}
+              items={items}
+              assets={assets}
+              locations={locations}
+              tasks={tasks}
+              sessions={sessions}
+              adminStatus={adminStatus}
+              reload={reload}
+              onSecurity={() => setDialog("advanced")}
+              onCreateUser={() => {
+                setSelected(null);
+                setDialog("user");
+              }}
+              onImport={() => setDialog("import")}
+              onCatalog={() => setPage("locations")}
+            >
               <div className="settings-grid">
                 <section className="panel padded">
                   <h2>Systeemstatus</h2>
@@ -1640,55 +1697,22 @@ function Workspace() {
                             ? "Controle nodig"
                             : "Status onbekend"}
                       </dd>
-                      <dt>E-mail</dt>
-                      <dd>
-                        {adminStatus.transports?.email || "Niet ingesteld"}
-                      </dd>
-                      <dt>Push</dt>
-                      <dd>
-                        {adminStatus.transports?.push || "Niet ingesteld"}
-                      </dd>
                     </dl>
                   )}
-                  <h2>Teamleden</h2>
-                  {users.map((u) => (
-                    <div className="task-row" key={u.id}>
-                      <span className="avatar">{u.name?.slice(0, 1)}</span>
-                      <span className="task-text">
-                        <strong>{u.name}</strong>
-                        <small>{u.email}</small>
-                      </span>
-                      <span className="badge">
-                        {u.role === "admin" ? "Beheerder" : "Medewerker"}
-                      </span>
-                    </div>
-                  ))}
                 </section>
                 <section className="panel padded">
-                  <h2>Gegevens importeren</h2>
-                  <p className="muted">
-                    Controleer eerst de voorbeeldweergave voordat je een import
-                    bevestigt.
-                  </p>
-                  <button
-                    className="secondary"
-                    onClick={() => setDialog("import")}
-                  >
-                    <Upload size={17} /> CSV / Todoist importeren
-                  </button>
-                  <hr />
                   <h2>Aanmeldsessies</h2>
-                  {sessions.map((s) => (
-                    <div className="task-row" key={s.id}>
+                  {sessions.map((session) => (
+                    <div className="task-row" key={session.id}>
                       <span className="task-text">
-                        {s.device || s.deviceName || s.userAgent || "Apparaat"}
-                        <small>{date(s.createdAt)}</small>
+                        {session.device || session.deviceName || "Apparaat"}
+                        <small>{date(session.createdAt)}</small>
                       </span>
                       <button
                         className="text-button"
                         onClick={() =>
                           run(async () => {
-                            await api("/auth/sessions/" + s.id, {
+                            await api("/auth/sessions/" + session.id, {
                               method: "DELETE",
                             });
                             setSessions(await api("/auth/sessions"));
@@ -1699,12 +1723,9 @@ function Workspace() {
                       </button>
                     </div>
                   ))}
-                  {!sessions.length && (
-                    <p className="muted">Geen sessiegegevens beschikbaar.</p>
-                  )}
                 </section>
               </div>
-            </>
+            </Administration>
           )}
           <footer className="page-footer">
             <Sprout size={14} /> TuinWerk OS{" "}
@@ -1822,7 +1843,7 @@ function Workspace() {
                   <Field label="Locatie">
                     <select
                       name="locationId"
-                      defaultValue={selected?.locationId || ""}
+                      defaultValue={taskContext?.locationId || ""}
                     >
                       <option value="">Geen locatie</option>
                       {locations
@@ -1835,7 +1856,10 @@ function Workspace() {
                     </select>
                   </Field>
                   <Field label="Machine">
-                    <select name="assetId">
+                    <select
+                      name="assetId"
+                      defaultValue={taskContext?.assetId || ""}
+                    >
                       <option value="">Geen machine</option>
                       {assets.map((l) => (
                         <option value={l.id} key={l.id}>
@@ -1918,9 +1942,11 @@ function Workspace() {
                     {priorities[selected.priority]}
                   </span>
                   <span className="muted">Versie {selected.version}</span>
+                  <ReportContent api={api} type="task" id={selected.id} />
                 </div>
                 <div className="tabs detail-tabs">
                   {[
+                    ["work", "Uitvoeren"],
                     ["details", "Details"],
                     ["checklist", "Checklist"],
                     ["comments", "Reacties"],
@@ -1936,6 +1962,21 @@ function Workspace() {
                     </button>
                   ))}
                 </div>
+                {detailTab === "work" && (
+                  <TaskWorkbench
+                    api={api}
+                    token={token}
+                    task={selected}
+                    user={user}
+                    items={items}
+                    locations={locations}
+                    onUpdated={async (task) => {
+                      setSelected(task);
+                      await reload();
+                    }}
+                    onReload={reload}
+                  />
+                )}
                 {detailTab === "details" && (
                   <form
                     onSubmit={(e) => {
@@ -2112,6 +2153,7 @@ function Workspace() {
                           <small>{date(c.createdAt)}</small>
                         </strong>
                         <p>{c.body}</p>
+                        <ReportContent api={api} type="comment" id={c.id} />
                       </div>
                     ))}
                     <form
@@ -3184,6 +3226,7 @@ function Workspace() {
                         email: f.get("email") === "on",
                         criticalOverride: f.get("criticalOverride") === "on",
                         weekly: f.get("weekly") === "on",
+                        digestMinutes: Number(f.get("digestMinutes") || 0),
                         quietStart: f.get("quietStart") || null,
                         quietEnd: f.get("quietEnd") || null,
                       }),
@@ -3222,6 +3265,19 @@ function Workspace() {
                     />
                   </Field>
                 </div>
+                <Field label="Normale meldingen bundelen (minuten)">
+                  <input
+                    name="digestMinutes"
+                    type="number"
+                    min="0"
+                    max="60"
+                    defaultValue={prefs.digestMinutes ?? 5}
+                  />
+                  <small>
+                    0 verstuurt direct. Kritieke uitzonderingen en stille uren
+                    blijven gelden.
+                  </small>
+                </Field>
                 <p className="muted">
                   Push en e-mail werken wanneer de beheerder het bijbehorende
                   transport heeft ingesteld.
@@ -3262,77 +3318,88 @@ function Workspace() {
               />
             )}
             {dialog === "profilePrefs" && (
-              <form
-                onSubmit={(e) =>
-                  submit(e, async (f) => {
-                    const preferences = {
-                      ...profilePrefs.preferences,
-                      taskFilter: f.get("taskFilter"),
-                      dashboardMetrics: f.getAll("metric"),
-                      taskSort: f.get("taskSort"),
-                    };
-                    const next = await api("/profile/preferences", {
-                      method: "PATCH",
-                      body: JSON.stringify({
-                        version: profilePrefs.version,
-                        preferences,
-                      }),
-                    });
-                    setProfilePrefs(next);
-                    setFilter(String(f.get("taskFilter")));
-                  })
-                }
-              >
-                <Field label="Standaard takenfilter">
-                  <select
-                    name="taskFilter"
-                    defaultValue={
-                      profilePrefs.preferences?.taskFilter || "active"
-                    }
-                  >
-                    <option value="active">Open werk</option>
-                    <option value="mine">Mijn taken</option>
-                    <option value="all">Alle taken</option>
-                    <option value="overdue">Achterstallig</option>
-                  </select>
-                </Field>
-                <Field label="Taaksortering">
-                  <select
-                    name="taskSort"
-                    defaultValue={
-                      profilePrefs.preferences?.taskSort || "newest"
-                    }
-                  >
-                    <option value="newest">Nieuwste eerst</option>
-                    <option value="deadline">Deadline</option>
-                    <option value="priority">Prioriteit</option>
-                    <option value="title">Titel</option>
-                  </select>
-                </Field>
-                <h3>Dashboardtegels</h3>
-                {[
-                  ["0", "Openstaande taken"],
-                  ["1", "Hoge prioriteit"],
-                  ["2", "Achterstallig"],
-                  ["3", "Lage voorraad"],
-                ].map(([v, l]) => (
-                  <label className="checkbox" key={v}>
-                    <input
-                      name="metric"
-                      type="checkbox"
-                      value={v}
-                      defaultChecked={
-                        !profilePrefs.preferences?.dashboardMetrics ||
-                        profilePrefs.preferences.dashboardMetrics.includes(v)
+              <>
+                <form
+                  onSubmit={(e) =>
+                    submit(e, async (f) => {
+                      const preferences = {
+                        ...profilePrefs.preferences,
+                        taskFilter: f.get("taskFilter"),
+                        dashboardMetrics: f.getAll("metric"),
+                        taskSort: f.get("taskSort"),
+                      };
+                      const next = await api("/profile/preferences", {
+                        method: "PATCH",
+                        body: JSON.stringify({
+                          version: profilePrefs.version,
+                          preferences,
+                        }),
+                      });
+                      setProfilePrefs(next);
+                      setFilter(String(f.get("taskFilter")));
+                    })
+                  }
+                >
+                  <Field label="Standaard takenfilter">
+                    <select
+                      name="taskFilter"
+                      defaultValue={
+                        profilePrefs.preferences?.taskFilter || "active"
                       }
-                    />
-                    {l}
-                  </label>
-                ))}
-                <button className="primary" disabled={busy}>
-                  Voorkeuren opslaan
-                </button>
-              </form>
+                    >
+                      <option value="active">Open werk</option>
+                      <option value="mine">Mijn taken</option>
+                      <option value="all">Alle taken</option>
+                      <option value="overdue">Achterstallig</option>
+                    </select>
+                  </Field>
+                  <Field label="Taaksortering">
+                    <select
+                      name="taskSort"
+                      defaultValue={
+                        profilePrefs.preferences?.taskSort || "newest"
+                      }
+                    >
+                      <option value="newest">Nieuwste eerst</option>
+                      <option value="deadline">Deadline</option>
+                      <option value="priority">Prioriteit</option>
+                      <option value="title">Titel</option>
+                    </select>
+                  </Field>
+                  <h3>Dashboardtegels</h3>
+                  {[
+                    ["0", "Openstaande taken"],
+                    ["1", "Hoge prioriteit"],
+                    ["2", "Achterstallig"],
+                    ["3", "Lage voorraad"],
+                  ].map(([v, l]) => (
+                    <label className="checkbox" key={v}>
+                      <input
+                        name="metric"
+                        type="checkbox"
+                        value={v}
+                        defaultChecked={
+                          !profilePrefs.preferences?.dashboardMetrics ||
+                          profilePrefs.preferences.dashboardMetrics.includes(v)
+                        }
+                      />
+                      {l}
+                    </label>
+                  ))}
+                  <button className="primary" disabled={busy}>
+                    Voorkeuren opslaan
+                  </button>
+                </form>
+                <hr />
+                <AccountPrivacy
+                  api={api}
+                  onDeleted={() => {
+                    setToken("");
+                    setUser(null);
+                    setDialog("");
+                  }}
+                />
+              </>
             )}
             {dialog === "search" && (
               <>

@@ -23,3 +23,10 @@ apps/api/control/
 *.twb
 
 .next-*/
+# Native release credentials remain in EAS/GitHub secrets or the publisher vault.
+apps/mobile/credentials.json
+apps/mobile/google-services.json
+apps/mobile/GoogleService-Info.plist
+*.p8
+*.jks
+mobile-readiness.json

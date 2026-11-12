@@ -1,4 +1,9 @@
 import { BackupsController } from "./backups";
+import { IntegrationsController } from "./integrations";
+import { ProductivityController } from "./productivity";
+import { PublicInfoController } from "./public-info";
+import { AccountPrivacyController } from "./account-privacy";
+import { ModerationController } from "./moderation";
 import { OneDriveController } from "./onedrive";
 import { SettingsController, SetupController } from "./settings";
 import { MfaController } from "./mfa";
@@ -20,6 +25,11 @@ import { RecurrenceController, SeasonController } from "./recurrence";
 import { ReportingController } from "./reporting";
 @Module({
   controllers: [
+    ModerationController,
+    AccountPrivacyController,
+    PublicInfoController,
+    IntegrationsController,
+    ProductivityController,
     BackupsController,
     OneDriveController,
     SettingsController,

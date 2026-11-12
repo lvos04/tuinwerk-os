@@ -5,6 +5,7 @@ import { startRuntimeSettings, refreshRuntimeSettings } from "./settings";
 import { runMaintenance } from "./recurrence";
 import { reportingTick } from "./reporting";
 import { pool } from "./db";
+import { processPrivacyFileCleanup } from "./account-privacy";
 let running = false,
   backupRunning = false,
   stopping = false;
@@ -16,6 +17,7 @@ async function tick() {
   running = true;
   try {
     await refreshRuntimeSettings();
+    await processPrivacyFileCleanup();
     const result = await runMaintenance();
     await reportingTick();
     if (result.failures?.length)

@@ -1,3 +1,4 @@
+import { moderateText } from "./moderation";
 import {
   BadRequestException,
   Body,
@@ -23,7 +24,7 @@ export class WorkspaceController {
       throw new BadRequestException("Zoekterm moet 2–200 tekens bevatten");
     return camel(
       await query(
-        `SELECT 'task' AS type,id,title AS name,location_id FROM tasks WHERE status<>'archived' AND (title ILIKE $1 OR description ILIKE $1 OR EXISTS(SELECT 1 FROM task_comments c WHERE c.task_id=tasks.id AND c.body ILIKE $1)) UNION ALL SELECT 'asset',id,name,location_id FROM assets WHERE name ILIKE $1 OR serial_number ILIKE $1 UNION ALL SELECT 'location',id,name,parent_id FROM locations WHERE active AND name ILIKE $1 UNION ALL SELECT 'item',id,name,NULL::uuid FROM inventory_items WHERE active AND (name ILIKE $1 OR sku ILIKE $1) LIMIT 100`,
+        `SELECT 'task' AS type,id,title AS name,location_id FROM tasks WHERE status<>'archived' AND NOT moderation_hidden AND (title ILIKE $1 OR description ILIKE $1 OR EXISTS(SELECT 1 FROM task_comments c WHERE c.task_id=tasks.id AND NOT c.moderation_hidden AND c.body ILIKE $1)) UNION ALL SELECT 'asset',id,name,location_id FROM assets WHERE name ILIKE $1 OR serial_number ILIKE $1 UNION ALL SELECT 'location',id,name,parent_id FROM locations WHERE active AND name ILIKE $1 UNION ALL SELECT 'item',id,name,NULL::uuid FROM inventory_items WHERE active AND (name ILIKE $1 OR sku ILIKE $1) LIMIT 100`,
         ["%" + q.trim() + "%"],
       ),
     );
@@ -39,6 +40,7 @@ export class WorkspaceController {
     if (typeof b.name !== "string" || !b.name.trim() || b.name.length > 200)
       throw new BadRequestException("Naam verplicht");
     const template = validateTask(b.template || {});
+    await moderateText(JSON.stringify(template));
     if (!template.title)
       throw new BadRequestException("Sjabloon vereist een titel");
     return idempotent(u, b, "templates:create", async (c) => {
@@ -74,6 +76,7 @@ export class WorkspaceController {
       if (typeof name !== "string" || !name.trim() || name.length > 200)
         throw new BadRequestException("Naam verplicht");
       const template = validateTask(b.template ?? old.template);
+      await moderateText(JSON.stringify(template));
       if (!template.title) throw new BadRequestException("Titel verplicht");
       if (b.active !== undefined && typeof b.active !== "boolean")
         throw new BadRequestException("Actief moet ja/nee zijn");

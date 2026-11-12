@@ -59,3 +59,13 @@ Bij **OneDrive** voer je de openbare Application-ID van je eigen Microsoft-appre
 Herstel ondersteunt lokale archieven, een via de toestelbestandskiezer geüpload UUID.twb-bestand en OneDrive-archieven. Uploads gebruiken de native bestandsuploader met voortgang. De extern bewaarde herstelcode wordt handmatig ingevoerd voor de ontsleutel-/controleproef; pas na een geslaagde proef en de exacte `HERSTEL <archief-ID>`-bevestiging kan de vervangende herstelactie worden gestart. Een herstel kan de huidige sessie beëindigen. Een herstelcode die uitsluitend op een verloren NAS staat, is niet voldoende: bewaar deze onafhankelijk.
 
 De nieuwe instellingen-/back-upschermen zijn getypecheckt en de payloadregels zijn automatisch getest. Werkelijke native OneDrive-aanmelding, grote bestandsuploads en destructief herstel via een fysiek toestel vereisen nog apparaat- en accountacceptatie; de code claimt die tests niet als uitgevoerd.
+
+## Release 0.2: App Store en Google Play
+
+De actuele route is vastgelegd in [STORE_RELEASE.md](../../docs/mobile/STORE_RELEASE.md): productie-AAB voor Play en store-IPA voor App Store Connect, met interne Play-tests en TestFlight vóór vrijgave. `production` gebruikt Xcode 26/iOS 26 SDK en Android API 36; buildnummers worden via EAS remote versioning beheerd. `android-apk` blijft een aanvullende interne route.
+
+Voer vanuit repositoryroot `node scripts/mobile-release.mjs` uit voor een diagnostisch overzicht zonder secrets. Voor indiening toetst `--require-store` ook de daadwerkelijke publieke policy-/support-/verwijderpagina's en reviewserver. De GitHub-workflow **Build and stage native store releases** bouwt na accountconfiguratie en kan afzonderlijk naar de stagingbestemming uploaden.
+
+Android-Firebase-clientconfiguratie staat als EAS-filevariabele `TUINWERK_GOOGLE_SERVICES_FILE` in de juiste `production`/`preview`-omgeving. `app.config.js` neemt het bestand op de buildworker over; de private FCM-v1-servicecredential wordt apart in EAS credentials beheerd. Een Expo-project-ID alleen maakt push niet werkzaam. Voor iOS is een geldige APNs-configuratie nodig.
+
+Gebruik [DATA_PRIVACY.md](../../docs/mobile/DATA_PRIVACY.md) voor de feitelijke gegevensstromen en [MOBILE_DEVICE_ACCEPTANCE.md](../../docs/mobile/MOBILE_DEVICE_ACCEPTANCE.md) voor de fysieke toestel-/24-uursproef. Account- en providerconfiguratie, store-review en echte apparaten blijven noodzakelijke externe opleverpoorten.

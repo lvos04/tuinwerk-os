@@ -1,0 +1,134 @@
+name: Build and stage native store releases
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Signed artifact to build
+        type: choice
+        options: [android-play, ios-app-store, android-apk]
+        default: android-play
+        required: true
+      submit:
+        description: Upload finished build to Play internal draft or App Store Connect/TestFlight
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: mobile-store-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: mobile-release
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      TUINWERK_EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      TUINWERK_EXPO_OWNER: ${{ vars.EXPO_OWNER }}
+      TUINWERK_IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_IDENTIFIER }}
+      TUINWERK_ANDROID_PACKAGE: ${{ vars.ANDROID_APPLICATION_ID }}
+      TUINWERK_ASC_APP_ID: ${{ vars.APP_STORE_CONNECT_APP_ID }}
+      TUINWERK_PRIVACY_URL: ${{ vars.PUBLIC_PRIVACY_URL }}
+      TUINWERK_SUPPORT_URL: ${{ vars.PUBLIC_SUPPORT_URL }}
+      TUINWERK_ACCOUNT_DELETION_URL: ${{ vars.PUBLIC_ACCOUNT_DELETION_URL }}
+      TUINWERK_SUPPORT_EMAIL: ${{ vars.SUPPORT_EMAIL }}
+      TUINWERK_COPYRIGHT_OWNER: ${{ vars.COPYRIGHT_OWNER }}
+      TUINWERK_REVIEW_SERVER_URL: ${{ vars.REVIEW_SERVER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Select artifact
+        id: target
+        env:
+          TARGET: ${{ inputs.target }}
+          SUBMIT: ${{ inputs.submit }}
+        run: |
+          case "$TARGET" in
+            android-play) echo 'platform=android' >> "$GITHUB_OUTPUT"; echo 'profile=production' >> "$GITHUB_OUTPUT" ;;
+            ios-app-store) echo 'platform=ios' >> "$GITHUB_OUTPUT"; echo 'profile=production' >> "$GITHUB_OUTPUT" ;;
+            android-apk) [ "$SUBMIT" != true ] || { echo 'APK is for internal device installation; select android-play for store submission.'; exit 1; }; echo 'platform=android' >> "$GITHUB_OUTPUT"; echo 'profile=android-apk' >> "$GITHUB_OUTPUT" ;;
+            *) exit 1 ;;
+          esac
+      - name: Prepare optional submission credentials
+        if: inputs.submit
+        env:
+          TARGET: ${{ inputs.target }}
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          APPLE_ASC_API_KEY_P8: ${{ secrets.APPLE_ASC_API_KEY_P8 }}
+          APPLE_ASC_KEY_ID: ${{ vars.APPLE_ASC_KEY_ID }}
+          APPLE_ASC_ISSUER_ID: ${{ vars.APPLE_ASC_ISSUER_ID }}
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const e=process.env;
+          if(e.TARGET==='android-play'){
+            let key;try{key=JSON.parse(e.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON||'');}catch{throw Error('Google Play service account JSON is missing or invalid');}
+            if(key.type!=='service_account'||!key.private_key||!key.client_email)throw Error('Google Play service account is incomplete');
+            const file=path.join(e.RUNNER_TEMP,'google-play-key.json');fs.writeFileSync(file,JSON.stringify(key),{mode:0o600});fs.appendFileSync(e.GITHUB_ENV,'GOOGLE_PLAY_SERVICE_ACCOUNT_FILE='+file+'\n');
+          }else{
+            if(!e.APPLE_ASC_API_KEY_P8?.includes('BEGIN PRIVATE KEY')||!e.APPLE_ASC_KEY_ID||!e.APPLE_ASC_ISSUER_ID)throw Error('App Store Connect API key metadata is missing');
+            const file=path.join(e.RUNNER_TEMP,'app-store-key.p8');fs.writeFileSync(file,e.APPLE_ASC_API_KEY_P8,{mode:0o600});fs.appendFileSync(e.GITHUB_ENV,'APPLE_ASC_API_KEY_FILE='+file+'\nAPPLE_ASC_KEY_ID='+e.APPLE_ASC_KEY_ID+'\nAPPLE_ASC_ISSUER_ID='+e.APPLE_ASC_ISSUER_ID+'\n');
+          }
+          JS
+      - name: Validate and prepare nonsecret build metadata
+        env:
+          MOBILE_PLATFORM: ${{ steps.target.outputs.platform }}
+          SUBMIT: ${{ inputs.submit }}
+          MOBILE_READINESS_REPORT: mobile-readiness.json
+        run: |
+          if [ "$SUBMIT" = true ]; then
+            node scripts/mobile-release.mjs --apply --require-account --require-store --submit
+          else
+            node scripts/mobile-release.mjs --apply --require-account
+          fi
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 27.7.2
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Validate credentials and client
+        run: |
+          eas whoami >/dev/null
+          npm run typecheck --workspace=@tuinwerk/mobile
+          npm run test --workspace=@tuinwerk/mobile
+      - name: Build signed artifact
+        id: build
+        working-directory: apps/mobile
+        env:
+          PLATFORM: ${{ steps.target.outputs.platform }}
+          PROFILE: ${{ steps.target.outputs.profile }}
+        run: |
+          eas build --platform "$PLATFORM" --profile "$PROFILE" --non-interactive --wait --json > "$RUNNER_TEMP/mobile-build.json"
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const parsed=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/mobile-build.json','utf8'));
+          const build=Array.isArray(parsed)?parsed[0]:parsed;
+          if(build.status!=='FINISHED'||!build.id)throw Error('Signed EAS build did not finish successfully');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'id='+build.id+'\n');
+          JS
+      - name: Upload to staged store destination
+        if: inputs.submit
+        working-directory: apps/mobile
+        env:
+          PLATFORM: ${{ steps.target.outputs.platform }}
+          BUILD_ID: ${{ steps.build.outputs.id }}
+        run: eas submit --platform "$PLATFORM" --profile production --id "$BUILD_ID" --non-interactive
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-release-readiness-${{ inputs.target }}
+          path: |
+            mobile-readiness.json
+            ${{ runner.temp }}/mobile-build.json
+      - name: Remove temporary upload keys
+        if: always()
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          for(const name of ['google-play-key.json','app-store-key.p8'])fs.rmSync(process.env.RUNNER_TEMP+'/'+name,{force:true});
+          JS

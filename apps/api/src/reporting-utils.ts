@@ -76,7 +76,7 @@ export function validQuietTime(s: unknown): s is string {
 }
 export function reportFilters(q: Record<string, string>) {
   const values: unknown[] = [];
-  const clauses: string[] = [];
+  const clauses: string[] = ["t.moderation_hidden=false"];
   const add = (clause: string, v: unknown) => {
     values.push(v);
     clauses.push(clause.replace("?", `$${values.length}`));

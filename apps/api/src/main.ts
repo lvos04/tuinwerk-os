@@ -66,7 +66,7 @@ export async function createApp() {
     .setDescription(
       "Geauthenticeerde API; zie docs/API.md voor mutatievelden en offline protocol.",
     )
-    .setVersion("0.1.0")
+    .setVersion("0.2.0")
     .addBearerAuth()
     .build();
   SwaggerModule.setup(
