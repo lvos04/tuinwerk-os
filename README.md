@@ -15,7 +15,7 @@ Het oorspronkelijke [bouwplan](docs/BOUWPLAN.txt) en het [uitvoeringsplan](docs/
 
 ## Installeren op TrueNAS
 
-Gebruik de standaard **Custom App-interface**, zonder YAML. Gebruik de nieuwste gepubliceerde [releasecandidate](https://github.com/lvos04/tuinwerk-os/releases). De gebundelde image bevat web, API, PostgreSQL en achtergrondtaken. Je koppelt één persistente dataset aan `/data` en stelt de webpoort in via de interface. Er zijn geen verplichte omgevingsvariabelen: de eerste beheerder wordt via de welkomstwizard aangemaakt. Bedrijf, SMTP, AI, push, OneDrive en volledige versleutelde back-ups beheert u daarna in de app. Volg de [installatiehandleiding met invultabel](docs/INSTALLATIE.md). Compose-bestanden in deze repository zijn uitsluitend voor ontwikkeling en tests.
+Gebruik de standaard **Custom App-interface**, zonder YAML. Geverifieerde releasecandidate: `ghcr.io/lvos04/tuinwerk-os:0.1.0-rc.2` ([release](https://github.com/lvos04/tuinwerk-os/releases/tag/v0.1.0-rc.2)). De gebundelde image bevat web, API, PostgreSQL en achtergrondtaken. Je koppelt één persistente dataset aan `/data` en stelt de webpoort in via de interface. Er zijn geen verplichte omgevingsvariabelen: de eerste beheerder wordt via de welkomstwizard aangemaakt. Bedrijf, SMTP, AI, push, OneDrive en volledige versleutelde back-ups beheert u daarna in de app. Volg de [installatiehandleiding met invultabel](docs/INSTALLATIE.md). Compose-bestanden in deze repository zijn uitsluitend voor ontwikkeling en tests.
 
 ## Back-ups en OneDrive
 

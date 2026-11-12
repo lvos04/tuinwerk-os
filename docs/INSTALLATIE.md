@@ -10,7 +10,7 @@ Kies **Apps → Discover Apps → Custom App → Install Custom App** en vul in:
 |---|---|
 | Application name | `tuinwerk` |
 | Image repository | `ghcr.io/lvos04/tuinwerk-os` |
-| Image tag | De daadwerkelijk gepubliceerde release- of `sha-...`-tag |
+| Image tag | `0.1.0-rc.2` |
 | Container port | `8080`, TCP |
 | Host port | Een vrije poort, bijvoorbeeld `30080` |
 | Storage type | Host Path |
