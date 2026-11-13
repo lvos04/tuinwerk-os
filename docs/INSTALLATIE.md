@@ -12,7 +12,7 @@ Kies **Apps → Discover Apps → Custom App → Install Custom App** en vul in:
 | Image repository | `ghcr.io/lvos04/tuinwerk-os` |
 | Image tag | `0.2.0-rc.1` (gebruik bij een latere release de tag uit die releasebeschrijving) |
 | Container port | `8080`, TCP |
-| Host port | Een vrije poort, bijvoorbeeld `30080` |
+| Host port | `30091`, TCP (moet vrij zijn op de NAS) |
 | Storage type | Host Path |
 | Host path | Uw blijvende dataset, bijvoorbeeld `/mnt/uwpool/apps/tuinwerk` |
 | Mount path | `/data`, schrijfbaar |
@@ -25,7 +25,7 @@ De workflow **Build Custom App image** publiceert release-images naar GitHub Pac
 
 ## Eerste ingebruikname in de browser
 
-1. Open `http://NAS-IP:30080` op het vertrouwde lokale netwerk of via VPN.
+1. Open `http://NAS-IP:30091` op het vertrouwde lokale netwerk of via VPN.
 2. Open eenmaal de **Logs** van de Custom App in TrueNAS en kopieer de eenmalige installatiecode (`initial_setup_code`). Het welkomstscherm vraagt die code, uw naam, e-mailadres en een sterk wachtwoord voor de eerste beheerder. De code voorkomt dat een andere netwerkgebruiker de lege installatie overneemt; de eerste inrichting sluit zodra het account bestaat.
 3. Meld u aan en voeg onder **Beheer** persoonlijke medewerkersaccounts toe.
 4. Stel via **Instellingen** onder andere de bedrijfsnaam, app-URL, tijdzone, onderhoudsvooruitblik en gewenste meldingen in. Mail, push en optionele AI worden via de eigen configuratievelden ingesteld.
@@ -35,6 +35,12 @@ De workflow **Build Custom App image** publiceert release-images naar GitHub Pac
 De geheime instellingen worden versleuteld opgeslagen. De toepassing genereert zelf de lokale instellingen-sleutel en neemt deze mee in volledige, afzonderlijk versleutelde herstelarchieven. U hoeft daarvoor geen sleutel of `.env`-bestand handmatig te maken.
 
 Gebruik voor normale bedrijfsvoering een geldige HTTPS-route via uw bestaande reverse proxy en VPN. Configureer die URL daarna in de app. Publiceer de HTTP-app-poort, PostgreSQL of de TrueNAS-beheerinterface niet rechtstreeks op internet. DNS, certificaatuitgifte en Microsoft-accounttoestemming blijven voorzieningen van uw eigen netwerk/accounts.
+
+## Poort wijzigen bij een bestaande installatie
+
+Open **Apps → TuinWerk → Edit**, zet **Host port** op `30091` en laat **Container port** op `8080`. Sla de wijziging op en open `http://NAS-IP:30091`. De bestaande image en `/data`-mount blijven bruikbaar; een nieuwe image of herinstallatie is hiervoor niet nodig.
+
+Als u de app rechtstreeks via dit adres gebruikt, wijzig dan in **Beheer → Instellingen → Algemeen → Adres van TuinWerk** ook de opgeslagen app-URL, zodat nieuwe QR-labels naar de juiste poort verwijzen. Gebruikt u een vaste HTTPS-URL via een reverse proxy, behoud die app-URL en wijzig de backendpoort van de proxy naar `30091`.
 
 ## OneDrive verbinden
 
