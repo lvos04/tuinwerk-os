@@ -1,0 +1,4 @@
+CREATE TABLE export_jobs(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users,filters jsonb NOT NULL,status text NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','completed','failed')),filename text,error text,created_at timestamptz NOT NULL DEFAULT now(),completed_at timestamptz);
+CREATE INDEX export_jobs_queued ON export_jobs(created_at) WHERE status='queued';
+ALTER TABLE ai_requests ADD COLUMN reserved_eur numeric(12,6) NOT NULL DEFAULT 0;
+CREATE TABLE push_receipts(id text PRIMARY KEY,device_id uuid NOT NULL REFERENCES push_devices ON DELETE CASCADE,notification_id uuid NOT NULL REFERENCES notifications ON DELETE CASCADE,state text NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','delivered','failed')),created_at timestamptz NOT NULL DEFAULT now(),checked_at timestamptz,last_error text);

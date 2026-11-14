@@ -1,0 +1,118 @@
+name: Verify TuinWerk OS
+on:
+  push:
+  pull_request:
+concurrency:
+  group: verify-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tuinwerk
+          POSTGRES_USER: tuinwerk
+          POSTGRES_PASSWORD: ci_test_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U tuinwerk -d tuinwerk"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://tuinwerk:ci_test_password@localhost:5432/tuinwerk
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run migrate --workspace=@tuinwerk/api
+      - run: npm run typecheck --workspaces --if-present
+      - run: node scripts/mobile-release.mjs
+      - run: npm test --workspaces --if-present
+      - run: npm run build --workspace=@tuinwerk/api
+      - run: npm run build --workspace=@tuinwerk/web
+        env:
+          NODE_ENV: production
+      - run: for script in scripts/*.sh deploy/custom-app/*.sh; do bash -n "$script"; done
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - run: node --test scripts/tests/*.test.cjs
+      - run: POSTGRES_PASSWORD=ci_password APP_HOST=localhost docker compose config --quiet
+      - run: docker build -f deploy/custom-app/Dockerfile -t tuinwerk-custom:ci .
+      - name: Verify UI setup, persistent restart and complete encrypted restore
+        env:
+          TEST_ADMIN_EMAIL: restore@example.test
+          TEST_ADMIN_PASSWORD: restore-test-password-0001
+        run: |
+          cleanup() {
+            docker rm -fv tuinwerk-ui-source tuinwerk-ui-recovery >/dev/null 2>&1 || true
+            docker volume rm tuinwerk-ui-source-data tuinwerk-ui-recovery-data >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          ready() {
+            for attempt in $(seq 1 90); do
+              if [ "$(docker inspect --format='{{.State.Health.Status}}' "$1")" = healthy ]; then return 0; fi
+              if [ "$attempt" = 90 ]; then docker logs "$1"; return 1; fi
+              sleep 2
+            done
+          }
+          # Disable volume copy-up: Docker otherwise resets the mode of a still-empty volume.
+          # TrueNAS host datasets may start root-owned 0700. Exercise that exact mount-root condition.
+          for volume in tuinwerk-ui-source-data tuinwerk-ui-recovery-data; do
+            docker volume create "$volume" >/dev/null
+            docker run --rm --entrypoint sh --mount "type=volume,src=$volume,dst=/data,volume-nocopy" tuinwerk-custom:ci -c 'chown root:root /data; chmod 700 /data; stat -c "%n owner=%u:%g mode=%a" /data; test "$(stat -c %a /data)" = 700'
+            docker run --rm --entrypoint sh --mount "type=volume,src=$volume,dst=/data,volume-nocopy" tuinwerk-custom:ci -c 'stat -c "%n owner=%u:%g mode=%a" /data; test "$(stat -c %a /data)" = 700 && test "$(stat -c %u:%g /data)" = 0:0'
+          done
+          permissions() {
+            docker exec "$1" stat -c '%n owner=%u:%g mode=%a' /data /data/postgres /data/config
+            docker exec "$1" sh -c 'test "$(stat -c %a /data)" = 711 && test "$(stat -c %a /data/postgres)" = 700 && test "$(stat -c %a /data/config)" = 700'
+            docker exec "$1" runuser -u node -- sh -c 'test -x /data && test ! -r /data/postgres/PG_VERSION && test ! -x /data/postgres'
+            docker exec "$1" runuser -u postgres -- sh -c 'test -x /data && test ! -r /data/config/settings.key && test ! -x /data/config'
+          }
+          docker run -d --name tuinwerk-ui-source --mount type=volume,src=tuinwerk-ui-source-data,dst=/data,volume-nocopy -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          ready tuinwerk-ui-source
+          permissions tuinwerk-ui-source
+          node scripts/runtime-backup-ui.mjs source tuinwerk-ui-source http://localhost:38080 /tmp/tuinwerk-ui-restore.json
+          docker restart tuinwerk-ui-source
+          ready tuinwerk-ui-source
+          permissions tuinwerk-ui-source
+          node scripts/runtime-smoke.mjs verify http://localhost:38080 /tmp/tuinwerk-ui-restore.json.records
+          docker rm -fv tuinwerk-ui-source
+          docker run -d --name tuinwerk-ui-recovery --mount type=volume,src=tuinwerk-ui-recovery-data,dst=/data,volume-nocopy -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          ready tuinwerk-ui-recovery
+          permissions tuinwerk-ui-recovery
+          node scripts/runtime-backup-ui.mjs restore tuinwerk-ui-recovery http://localhost:38080 /tmp/tuinwerk-ui-restore.json
+          permissions tuinwerk-ui-recovery
+      - run: npx playwright install --with-deps chromium
+      - name: Start acceptance stack
+        env:
+          ADMIN_EMAIL: ci@example.test
+          ADMIN_PASSWORD: ci-only-password-0001
+          ADMIN_NAME: CI beheerder
+          NODE_ENV: production
+        run: |
+          npm run bootstrap --workspace=@tuinwerk/api
+          npm run start --workspace=@tuinwerk/api > /tmp/api.log 2>&1 &
+          npm run start --workspace=@tuinwerk/web > /tmp/web.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:3001/api/health >/dev/null && curl -fsS http://localhost:3000 >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/api.log /tmp/web.log
+          exit 1
+      - run: npm run test:e2e
+        env:
+          WEB_URL: http://localhost:3000
+          E2E_EMAIL: ci@example.test
+          E2E_PASSWORD: ci-only-password-0001
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-results
+          path: test-results/

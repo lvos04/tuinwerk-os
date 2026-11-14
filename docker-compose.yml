@@ -1,0 +1,84 @@
+name: tuinwerk
+x-defaults: &defaults
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+  security_opt: [no-new-privileges:true]
+services:
+  db:
+    <<: *defaults
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: tuinwerk
+      POSTGRES_USER: tuinwerk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - ${DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U tuinwerk -d tuinwerk']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  migrate:
+    build: {context: ., dockerfile: apps/api/Dockerfile}
+    image: tuinwerk-api:${APP_VERSION:-local}
+    command: [node, dist/migrate.js]
+    environment: &api-env
+      DATABASE_URL: postgresql://tuinwerk:${POSTGRES_PASSWORD}@db:5432/tuinwerk
+      NODE_ENV: production
+      PORT: '3001'
+      APP_URL: https://${APP_HOST:?Set APP_HOST in .env}
+      UPLOAD_DIR: /data/uploads
+      MIGRATIONS_DIR: /app/migrations
+      AI_ENABLED: 'false'
+    depends_on:
+      db: {condition: service_healthy}
+    restart: 'no'
+  api:
+    <<: *defaults
+    image: tuinwerk-api:${APP_VERSION:-local}
+    environment: *api-env
+    volumes:
+      - ${DATA_ROOT:-./data}/uploads:/data/uploads
+      - ${DATA_ROOT:-./data}/exports:/data/exports
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  web:
+    <<: *defaults
+    build: {context: ., dockerfile: apps/web/Dockerfile}
+    image: tuinwerk-web:${APP_VERSION:-local}
+    environment:
+      API_INTERNAL_URL: http://api:3001
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  proxy:
+    <<: *defaults
+    image: caddy:2-alpine
+    environment:
+      APP_HOST: ${APP_HOST}
+    ports:
+      - '${HTTPS_PORT:-443}:443'
+      - '${HTTP_PORT:-80}:80'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DATA_ROOT:-./data}/caddy:/data
+    depends_on:
+      web: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://localhost:2019/config/]
+      interval: 30s
+      timeout: 5s
+      retries: 3

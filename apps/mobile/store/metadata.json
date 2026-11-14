@@ -1,0 +1,17 @@
+{
+  "displayName": "TuinWerk OS",
+  "primaryLanguage": "nl-NL",
+  "subtitle": "Onderhoud voor de tuinbouw",
+  "shortDescription": "Onderhoud, storingen, planning en onderdelenvoorraad voor je tuinbouwbedrijf.",
+  "description": "TuinWerk OS ondersteunt het technische werk in de tuinbouw. Meld een storing met foto en locatie, wijs werk toe en houd taken, checklists en opmerkingen bij. Plan werk met je team, bekijk machinehistorie en registreer gebruikte onderdelen.\n\nDe native app bewaart wachtende taken, foto's en voorraadconcepten lokaal bij een verbroken verbinding. Na herverbinden verwerkt je eigen server de wijzigingen. Conflicten blijven zichtbaar zodat je ze bewust kunt oplossen.\n\nJe organisatie beheert de eigen TuinWerk-server en gebruikersaccounts. Voor de app is een bestaand account en een bereikbare HTTPS-server nodig. Pushmeldingen en externe AI zijn optionele, afzonderlijk ingestelde functies. Er zijn geen advertenties en geen in-appaankopen.",
+  "keywords": "tuinbouw,onderhoud,storingen,planning,voorraad,machines",
+  "category": "Business",
+  "privacyPolicyUrl": null,
+  "supportUrl": null,
+  "accountDeletionUrl": null,
+  "supportEmail": null,
+  "copyrightOwner": null,
+  "reviewServerUrl": null,
+  "appleNumericAppId": null,
+  "reviewNotes": "De app gebruikt organisatieaccounts en een eigen backend. De uitgever moet hier vóór indiening een bereikbare HTTPS-reviewserver en afzonderlijke testaccounts leveren. Gebruik fictieve gegevens. Lever wachtwoorden en eventuele reviewinstructies uitsluitend via de afgeschermde reviewvelden van de stores, nooit in deze repository."
+}
