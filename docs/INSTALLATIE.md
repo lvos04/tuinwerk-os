@@ -10,7 +10,7 @@ Kies **Apps → Discover Apps → Custom App → Install Custom App** en vul in:
 |---|---|
 | Application name | `tuinwerk` |
 | Image repository | `ghcr.io/lvos04/tuinwerk-os` |
-| Image tag | `0.2.0-rc.1` (gebruik bij een latere release de tag uit die releasebeschrijving) |
+| Image tag | `0.2.0-rc.2` (gebruik bij een latere release de tag uit die releasebeschrijving) |
 | Container port | `8080`, TCP |
 | Host port | `30091`, TCP (moet vrij zijn op de NAS) |
 | Storage type | Host Path |
@@ -57,3 +57,9 @@ Maak vóór een update een volledige versleutelde back-up en noteer de image-tag
 Eén Alpine-image beheert PostgreSQL 17, API, Next-webapp, onderhoudsworker, nginx en de beperkte back-uphelper via supervisor. De container begint als root voor procesbeheer; applicatie en database draaien met afzonderlijke gebruikers. De helper accepteert uitsluitend de vastgelegde back-up-/herstelopdrachten vanuit de geautoriseerde API. Er is geen Docker-socketmount of privileged container nodig. Compose-bestanden in de repository zijn ontwikkelvoorzieningen.
 
 Bron voor de GUI-velden: [TrueNAS Custom App Screens](https://www.truenas.com/docs/scale/apps/installcustomappscreens/). Kies de guided wizard **Install Custom App**. De werkelijke installatie op de doel-NAS, de eigen TLS-route en de getekende mobiele releases blijven afzonderlijke acceptatietests.
+
+## Fout: permission denied bij /data/postgres
+
+Werk de Custom App bij naar image-tag `0.2.0-rc.2`. Behoud dezelfde Host Path naar `/data`, schrijfbaar, en laat Custom User uit. De app geeft alleen doorgangsrecht op de hoofdmap `/data`; de database en configuratie blijven afgeschermd in hun eigen submappen. Verwijder de dataset niet en wijzig rechten niet recursief.
+
+Als een expliciete TrueNAS-dataset-ACL toegang blijft blokkeren, vermeldt het opstartlog de betrokken map en de werkelijke UID van postgres en node. Controleer die ACL via de datasetrechten in TrueNAS: deze gebruikers hebben doorgang op de hoofdmap en toegang tot hun eigen submappen nodig. De app controleert dit bij het starten met echte schrijfproeven.

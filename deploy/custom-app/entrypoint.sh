@@ -3,6 +3,18 @@ set -Eeuo pipefail
 umask 077
 PG_BIN=${PG_BIN:-/usr/bin}
 PG_MAJOR=${PG_MAJOR:-17}
+# Only grant traversal on the mount root; private child directories retain their modes.
+storage_error() {
+  echo "TuinWerk: geen toegang tot opslag ${1:-/data}." >&2
+  echo "TrueNAS: mount het eigen app-dataset schrijfbaar op /data en schakel Custom User uit." >&2
+  echo "Controleer bij aanhoudende fouten de dataset-ACL: doorgang op /data en toegang tot de eigen submappen voor postgres (UID $(id -u postgres)) en node (UID $(id -u node))." >&2
+  echo "Verwijder geen gegevens en verruim rechten niet recursief." >&2
+  stat -c '%n owner=%u:%g mode=%a' /data "${1:-/data}" >&2 || true
+  exit 1
+}
+trap 'storage_error /data' ERR
+mkdir -p /data
+chmod a+x /data
 mkdir -p /data/postgres /data/uploads /data/exports /data/backups /data/config /data/status /data/control/requests /data/control/uploads /data/control/results /data/control/status /data/control/processing /run/postgresql /run/nginx
 chown postgres:postgres /data/postgres /run/postgresql
 chown node:node /data/uploads /data/exports /data/config /data/control/requests /data/control/uploads
@@ -11,6 +23,23 @@ chmod 750 /data/backups /data/control /data/control/results /data/control/status
 chmod 700 /data/control/requests /data/control/uploads /data/control/processing
 chmod 700 /data/postgres /data/config
 chmod 755 /data/status
+trap - ERR
+# Check effective access as the service users, including inherited dataset ACLs.
+check_storage() {
+  local account=$1 directory=$2
+  runuser -u "$account" -- sh -c '
+    test -r "$1" && test -x "$1" || exit 1
+    probe=$(mktemp "$1/.tuinwerk-access.XXXXXXXX") || exit 1
+    trap "rm -f -- \"\$probe\"" EXIT
+    printf test > "$probe" || exit 1
+    rm -f -- "$probe" || exit 1
+    trap - EXIT
+  ' sh "$directory" || storage_error "$directory"
+}
+check_storage postgres /data/postgres
+for directory in /data/uploads /data/exports /data/config /data/control/requests /data/control/uploads; do
+  check_storage node "$directory"
+done
 if [[ ! -s /data/postgres/PG_VERSION ]]; then
   runuser -u postgres -- "$PG_BIN/initdb" -D /data/postgres --encoding=UTF8 --locale=C --auth-local=peer --auth-host=trust
   # Database listens exclusively inside this single container, never on its LAN interface.

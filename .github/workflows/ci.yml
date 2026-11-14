@@ -50,7 +50,10 @@ jobs:
           TEST_ADMIN_EMAIL: restore@example.test
           TEST_ADMIN_PASSWORD: restore-test-password-0001
         run: |
-          cleanup() { docker rm -fv tuinwerk-ui-source tuinwerk-ui-recovery >/dev/null 2>&1 || true; }
+          cleanup() {
+            docker rm -fv tuinwerk-ui-source tuinwerk-ui-recovery >/dev/null 2>&1 || true
+            docker volume rm tuinwerk-ui-source-data tuinwerk-ui-recovery-data >/dev/null 2>&1 || true
+          }
           trap cleanup EXIT
           ready() {
             for attempt in $(seq 1 90); do
@@ -59,16 +62,30 @@ jobs:
               sleep 2
             done
           }
-          docker run -d --name tuinwerk-ui-source -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          # TrueNAS host datasets may start root-owned 0700. Exercise that exact mount-root condition.
+          for volume in tuinwerk-ui-source-data tuinwerk-ui-recovery-data; do
+            docker volume create "$volume" >/dev/null
+            docker run --rm --entrypoint sh -v "$volume:/data" tuinwerk-custom:ci -c 'chown root:root /data; chmod 700 /data; test "$(stat -c %a /data)" = 700'
+          done
+          permissions() {
+            docker exec "$1" sh -c 'test "$(stat -c %a /data)" = 711 && test "$(stat -c %a /data/postgres)" = 700 && test "$(stat -c %a /data/config)" = 700'
+            docker exec "$1" runuser -u node -- sh -c 'test -x /data && test ! -r /data/postgres/PG_VERSION && test ! -x /data/postgres'
+            docker exec "$1" runuser -u postgres -- sh -c 'test -x /data && test ! -r /data/config/settings.key && test ! -x /data/config'
+          }
+          docker run -d --name tuinwerk-ui-source -v tuinwerk-ui-source-data:/data -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
           ready tuinwerk-ui-source
+          permissions tuinwerk-ui-source
           node scripts/runtime-backup-ui.mjs source tuinwerk-ui-source http://localhost:38080 /tmp/tuinwerk-ui-restore.json
           docker restart tuinwerk-ui-source
           ready tuinwerk-ui-source
+          permissions tuinwerk-ui-source
           node scripts/runtime-smoke.mjs verify http://localhost:38080 /tmp/tuinwerk-ui-restore.json.records
           docker rm -fv tuinwerk-ui-source
-          docker run -d --name tuinwerk-ui-recovery -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          docker run -d --name tuinwerk-ui-recovery -v tuinwerk-ui-recovery-data:/data -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
           ready tuinwerk-ui-recovery
+          permissions tuinwerk-ui-recovery
           node scripts/runtime-backup-ui.mjs restore tuinwerk-ui-recovery http://localhost:38080 /tmp/tuinwerk-ui-restore.json
+          permissions tuinwerk-ui-recovery
       - run: npx playwright install --with-deps chromium
       - name: Start acceptance stack
         env:

@@ -69,3 +69,9 @@ Installeer de gepubliceerde release-image via de echte TrueNAS **Install Custom 
 ## Herhaling op de 0.2-releasebron
 
 [CI-run 43178305992](https://github.com/lvos04/tuinwerk-os/actions/runs/43178305992) heeft op broncommit `b013d96` de volledige Custom App-image gebouwd en de eerste inrichting, persistente herstart en volledige versleutelde herstelroute opnieuw succesvol uitgevoerd. Dit omvat migraties 001–019, verplichte configuratiesleutels in het archief en de nieuwe alleen-lezen `pg_restore --list`-controle vóór herstel. De 15 productie-browserflows slaagden aansluitend. Het betreft een geïsoleerde CI-container; de doel-TrueNAS en live OneDrive-aanmelding blijven apart te accepteren.
+
+## Regressie: afgeschermde hoofdmap /data — 14 november 2026
+
+Een onafhankelijke deployment-subagent heeft de gemelde fout met PostgreSQL 17 gereproduceerd: `/data` als root met modus `0700`, ook met correct beheerde submap `/data/postgres`, veroorzaakt `initdb: Permission denied`. Alleen doorgangsrechten toevoegen op `/data` (`0711`) liet dezelfde initialisatie slagen.
+
+Het opstartscript controleert nu ook daadwerkelijk lezen, doorgang en schrijven onder de serviceaccounts. CI gebruikt voor zowel bron als herstel een nieuw root-`0700`-volume en controleert na opstarten, herstart en herstel dat database/configuratie `0700` blijven en de serviceaccounts elkaars afgeschermde mappen niet kunnen openen. Dit simuleert POSIX-rechten; expliciet blokkerende TrueNAS-ACL's vereisen controle op het NAS zelf.
