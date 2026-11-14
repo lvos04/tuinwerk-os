@@ -62,17 +62,20 @@ jobs:
               sleep 2
             done
           }
+          # Disable volume copy-up: Docker otherwise resets the mode of a still-empty volume.
           # TrueNAS host datasets may start root-owned 0700. Exercise that exact mount-root condition.
           for volume in tuinwerk-ui-source-data tuinwerk-ui-recovery-data; do
             docker volume create "$volume" >/dev/null
-            docker run --rm --entrypoint sh -v "$volume:/data" tuinwerk-custom:ci -c 'chown root:root /data; chmod 700 /data; test "$(stat -c %a /data)" = 700'
+            docker run --rm --entrypoint sh --mount "type=volume,src=$volume,dst=/data,volume-nocopy" tuinwerk-custom:ci -c 'chown root:root /data; chmod 700 /data; stat -c "%n owner=%u:%g mode=%a" /data; test "$(stat -c %a /data)" = 700'
+            docker run --rm --entrypoint sh --mount "type=volume,src=$volume,dst=/data,volume-nocopy" tuinwerk-custom:ci -c 'stat -c "%n owner=%u:%g mode=%a" /data; test "$(stat -c %a /data)" = 700 && test "$(stat -c %u:%g /data)" = 0:0'
           done
           permissions() {
+            docker exec "$1" stat -c '%n owner=%u:%g mode=%a' /data /data/postgres /data/config
             docker exec "$1" sh -c 'test "$(stat -c %a /data)" = 711 && test "$(stat -c %a /data/postgres)" = 700 && test "$(stat -c %a /data/config)" = 700'
             docker exec "$1" runuser -u node -- sh -c 'test -x /data && test ! -r /data/postgres/PG_VERSION && test ! -x /data/postgres'
             docker exec "$1" runuser -u postgres -- sh -c 'test -x /data && test ! -r /data/config/settings.key && test ! -x /data/config'
           }
-          docker run -d --name tuinwerk-ui-source -v tuinwerk-ui-source-data:/data -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          docker run -d --name tuinwerk-ui-source --mount type=volume,src=tuinwerk-ui-source-data,dst=/data,volume-nocopy -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
           ready tuinwerk-ui-source
           permissions tuinwerk-ui-source
           node scripts/runtime-backup-ui.mjs source tuinwerk-ui-source http://localhost:38080 /tmp/tuinwerk-ui-restore.json
@@ -81,7 +84,7 @@ jobs:
           permissions tuinwerk-ui-source
           node scripts/runtime-smoke.mjs verify http://localhost:38080 /tmp/tuinwerk-ui-restore.json.records
           docker rm -fv tuinwerk-ui-source
-          docker run -d --name tuinwerk-ui-recovery -v tuinwerk-ui-recovery-data:/data -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
+          docker run -d --name tuinwerk-ui-recovery --mount type=volume,src=tuinwerk-ui-recovery-data,dst=/data,volume-nocopy -p 127.0.0.1:38080:8080 tuinwerk-custom:ci
           ready tuinwerk-ui-recovery
           permissions tuinwerk-ui-recovery
           node scripts/runtime-backup-ui.mjs restore tuinwerk-ui-recovery http://localhost:38080 /tmp/tuinwerk-ui-restore.json
