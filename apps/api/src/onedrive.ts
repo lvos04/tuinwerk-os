@@ -904,6 +904,8 @@ export async function probeOneDrive() {
         cleaned = cleanup.ok || cleanup.status === 404;
       } catch {}
       if (!cleaned)
+        // Bewust: een achtergebleven testbestand moet de eerdere fout overstemmen.
+        // eslint-disable-next-line no-unsafe-finally
         throw new ServiceUnavailableException(
           "De OneDrive-controle is niet voltooid: het tijdelijke testbestand kon niet worden verwijderd. Controleer de appmap en probeer opnieuw.",
         );

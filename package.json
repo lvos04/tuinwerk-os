@@ -13,7 +13,9 @@
     "dev:web": "npm run dev --workspace apps/web",
     "dev:mobile": "npm run start --workspace apps/mobile",
     "test:e2e": "playwright test",
-    "format": "prettier --write apps tests playwright.config.ts"
+    "format": "prettier --write apps tests playwright.config.ts",
+    "lint": "eslint .",
+    "format:check": "prettier --check apps tests playwright.config.ts eslint.config.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -26,7 +28,12 @@
     "image-size": "2.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.65.0",
-    "prettier": "^3.10.0"
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.0",
+    "typescript-eslint": "^8.72.2"
   }
 }
