@@ -32,6 +32,11 @@ export function BusinessLinkKeys({ api }: { api: SettingsApi }) {
   const toggle = (next: boolean) =>
     run(async () => {
       if (!settings) return;
+      // Direct tonen; bij een fout herstelt load() de werkelijke stand.
+      setSettings({
+        ...settings,
+        values: { ...settings.values, koppelingEnabled: next },
+      });
       setSettings(
         await api("/settings", {
           method: "PATCH",
