@@ -33,7 +33,13 @@ import {
 } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Response } from "express";
-import { AdminGuard, AuthGuard, CurrentUser, User } from "./auth";
+import {
+  AdminGuard,
+  AuthGuard,
+  CurrentUser,
+  User,
+  requireRecentReauth,
+} from "./auth";
 import { audit, camel, query, transaction } from "./db";
 import { validId } from "./inventory";
 import { getSetting, readSecret, sealSecret, openSecret } from "./settings";
@@ -1154,6 +1160,7 @@ export class BackupsController {
     }
   }
   @Post("restore") async restore(@Body() b: any, @CurrentUser() u: User) {
+    requireRecentReauth(u);
     await requireHelper();
     validId(b.previewId);
     const secret = recoverySecret(b.recoverySecret);

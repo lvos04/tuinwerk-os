@@ -63,7 +63,7 @@ export class AuthGuard implements CanActivate {
     const token = req.headers.authorization?.replace(/^Bearer /, "");
     if (!token) throw new UnauthorizedException("Log opnieuw in");
     const [u] = await query(
-      "SELECT u.id,u.email,u.name,u.role,s.id AS session_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active=true",
+      "SELECT u.id,u.email,u.name,u.role,u.mfa_enabled,s.id AS session_id,s.reauthenticated_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active=true",
       [hash(token)],
     );
     if (!u) throw new UnauthorizedException("Sessie verlopen");
@@ -71,15 +71,85 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 }
+/** Alleen de rol controleren (ook zonder tweede factor), bijv. om MFA in te stellen. */
 @Injectable()
-export class AdminGuard implements CanActivate {
+export class AdminRoleGuard implements CanActivate {
   canActivate(ctx: ExecutionContext) {
     if (ctx.switchToHttp().getRequest().user?.role !== "admin")
       throw new ForbiddenException("Alleen voor beheerders");
     return true;
   }
 }
-const attempts = new Map<string, { count: number; until: number }>();
+/** Instelling `adminMfaRequired` (omgevingsvariabele ADMIN_MFA_REQUIRED), standaard uit. */
+export const adminMfaRequired = () => process.env.ADMIN_MFA_REQUIRED === "true";
+@Injectable()
+export class AdminGuard implements CanActivate {
+  canActivate(ctx: ExecutionContext) {
+    const user = ctx.switchToHttp().getRequest().user;
+    if (user?.role !== "admin")
+      throw new ForbiddenException("Alleen voor beheerders");
+    if (adminMfaRequired() && user.mfa_enabled === false)
+      throw new ForbiddenException({
+        message:
+          "Tweede factor is verplicht voor beheerders. Stel deze eerst in via Beveiliging → Tweede factor.",
+        mfaSetupRequired: true,
+      });
+    return true;
+  }
+}
+/** Instelling `sensitiveActionReauth` (SENSITIVE_ACTION_REAUTH), standaard uit. */
+export const sensitiveActionReauth = () =>
+  process.env.SENSITIVE_ACTION_REAUTH === "true";
+export const REAUTH_WINDOW_MS = 5 * 60 * 1000;
+/**
+ * Gevoelige actie (back-up terugzetten, volledige export, koppelsleutel maken):
+ * vereist een herbevestiging in deze sessie binnen 5 minuten, als de instelling aan staat.
+ */
+export function requireRecentReauth(user: any) {
+  if (!sensitiveActionReauth()) return;
+  const at = user?.reauthenticated_at
+    ? new Date(user.reauthenticated_at).getTime()
+    : 0;
+  if (at && Date.now() - at <= REAUTH_WINDOW_MS) return;
+  throw new ForbiddenException({
+    message:
+      "Bevestig deze gevoelige actie opnieuw met je " +
+      (user?.mfa_enabled ? "authenticatorcode" : "wachtwoord"),
+    reauthRequired: true,
+    method: user?.mfa_enabled ? "otp" : "password",
+  });
+}
+type Bucket = { count: number; until: number };
+const LOGIN_WINDOW_MS = 900000;
+const limit = (env: string, fallback: number) => {
+  const n = Number(process.env[env]);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+};
+/** Aanmeldbeperking: per account+IP, per IP en per account (in geheugen, per proces). */
+export const loginLimits = () => ({
+  pair: limit("LOGIN_MAX_ATTEMPTS", 10),
+  ip: limit("LOGIN_MAX_FAILURES_PER_IP", 50),
+  account: limit("LOGIN_MAX_FAILURES_PER_ACCOUNT", 30),
+});
+const attempts = new Map<string, Bucket>();
+export function resetLoginAttempts() {
+  attempts.clear();
+}
+function active(key: string, now = Date.now()) {
+  const b = attempts.get(key);
+  return b && b.until > now ? b.count : 0;
+}
+function bump(key: string, now = Date.now()) {
+  if (attempts.size > 20000)
+    for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
+  const count = active(key, now) + 1;
+  attempts.set(key, { count, until: now + LOGIN_WINDOW_MS });
+  return count;
+}
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Oplopende vertraging na herhaalde fouten (max. 2 s), vertraagt raden zonder te blokkeren. */
+const failureDelay = (failures: number) =>
+  failures > 3 ? Math.min(2000, (failures - 3) * 250) : 0;
 async function issue(userId: string, device: string, c?: any) {
   const token = randomBytes(32).toString("base64url"),
     refreshToken = randomBytes(48).toString("base64url");
@@ -98,23 +168,31 @@ export class AuthController {
       b.password.length > 256
     )
       throw new UnauthorizedException("Ongeldige inloggegevens");
-    const key = req.ip + ":" + b.email.toLowerCase();
-    const a = attempts.get(key);
-    if (a && a.until > Date.now() && a.count >= 10)
+    const email = b.email.toLowerCase().slice(0, 320),
+      ip = String(req.ip || "onbekend");
+    const key = "p:" + ip + ":" + email,
+      ipKey = "i:" + ip,
+      accountKey = "a:" + email,
+      limits = loginLimits();
+    if (
+      active(key) >= limits.pair ||
+      active(ipKey) >= limits.ip ||
+      active(accountKey) >= limits.account
+    )
       throw new ForbiddenException("Te veel pogingen; probeer over 15 minuten");
-    if (attempts.size > 10000)
-      for (const [k, v] of attempts)
-        if (v.until < Date.now()) attempts.delete(k);
-    attempts.set(key, {
-      count: (a && a.until > Date.now() ? a.count : 0) + 1,
-      until: Date.now() + 900000,
-    });
+    bump(key);
+    const failed = async () => {
+      bump(ipKey);
+      const n = bump(accountKey);
+      await pause(failureDelay(Math.max(active(key), n)));
+      return new UnauthorizedException("Ongeldige inloggegevens");
+    };
     const [u] = await query(
       "SELECT * FROM users WHERE lower(email)=$1 AND active=true",
       [b.email.toLowerCase()],
     );
     if (!u || !passwordMatches(b.password, u.password_hash))
-      throw new UnauthorizedException("Ongeldige inloggegevens");
+      throw await failed();
     return transaction(async (c) => {
       const [fresh] = (
         await c.query(
@@ -167,6 +245,7 @@ export class AuthController {
         },
       };
       attempts.delete(key);
+      attempts.delete(accountKey);
       return result;
     });
   }
@@ -199,8 +278,70 @@ export class AuthController {
       return { token, refreshToken };
     });
   }
-  @Get("me") @UseGuards(AuthGuard) me(@CurrentUser() u: User) {
-    return u;
+  @Get("me") @UseGuards(AuthGuard) me(@CurrentUser() u: any) {
+    return {
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      session_id: u.session_id,
+    };
+  }
+  /** Herbevestiging voor gevoelige acties: authenticatorcode met MFA, anders wachtwoord. */
+  @Post("reauth") @UseGuards(AuthGuard) async reauth(
+    @CurrentUser() u: any,
+    @Body() b: any,
+  ) {
+    const key = "r:" + u.id;
+    if (active(key) >= loginLimits().pair)
+      throw new ForbiddenException("Te veel pogingen; probeer over 15 minuten");
+    bump(key);
+    return transaction(async (c) => {
+      const [r] = (
+        await c.query(
+          "SELECT * FROM users WHERE id=$1 AND active=true FOR UPDATE",
+          [u.id],
+        )
+      ).rows;
+      if (!r) throw new UnauthorizedException("Sessie verlopen");
+      if (r.mfa_enabled) {
+        const otp = typeof b?.otp === "string" ? b.otp.trim() : "";
+        const step = otp ? verifyTotp(decryptSecret(r.mfa_secret), otp) : null;
+        const recovery = !!otp && r.mfa_recovery_hashes.includes(hash(otp));
+        if ((step === null || step <= Number(r.mfa_last_step)) && !recovery)
+          throw new UnauthorizedException(
+            "Authenticatorcode onjuist of al gebruikt",
+          );
+        await c.query(
+          "UPDATE users SET mfa_last_step=$1,mfa_recovery_hashes=$2 WHERE id=$3",
+          [
+            recovery ? r.mfa_last_step : step,
+            recovery
+              ? r.mfa_recovery_hashes.filter((x: string) => x !== hash(otp))
+              : r.mfa_recovery_hashes,
+            u.id,
+          ],
+        );
+      } else if (
+        typeof b?.password !== "string" ||
+        b.password.length > 256 ||
+        !passwordMatches(b.password, r.password_hash)
+      )
+        throw new UnauthorizedException("Wachtwoord onjuist");
+      const [s] = (
+        await c.query(
+          "UPDATE sessions SET reauthenticated_at=now() WHERE id=$1 RETURNING reauthenticated_at",
+          [u.session_id],
+        )
+      ).rows;
+      await audit(c, u.id, "user", u.id, "reauthenticated");
+      attempts.delete(key);
+      return {
+        ok: true,
+        reauthenticatedAt: new Date(s.reauthenticated_at).toISOString(),
+        validForSeconds: REAUTH_WINDOW_MS / 1000,
+      };
+    });
   }
   @Get("sessions") @UseGuards(AuthGuard) async sessions(
     @CurrentUser() u: User,

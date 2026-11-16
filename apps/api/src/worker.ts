@@ -5,6 +5,8 @@ import { startRuntimeSettings, refreshRuntimeSettings } from "./settings";
 import { runMaintenance } from "./recurrence";
 import { reportingTick } from "./reporting";
 import { pool } from "./db";
+import { cleanupSessions } from "./session-cleanup";
+import { workerHealthFile } from "./worker-health";
 import { processPrivacyFileCleanup } from "./account-privacy";
 let running = false,
   backupRunning = false,
@@ -25,7 +27,8 @@ async function tick() {
         "Onderhoudsregels mislukt: " +
           result.failures.map((f) => f.ruleId).join(","),
       );
-    await writeFile("/tmp/tuinwerk-worker-health", String(Date.now()));
+    await cleanupSessions();
+    await writeFile(workerHealthFile(), String(Date.now()));
     console.log(JSON.stringify({ event: "maintenance", ...result }));
   } catch (error) {
     console.error(

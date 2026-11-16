@@ -5,7 +5,12 @@ Promise.all([
 ])
   .then((rs) => {
     if (rs.some((r) => !r.ok)) process.exit(1);
-    const t = Number(fs.readFileSync("/tmp/tuinwerk-worker-health", "utf8"));
+    const t = Number(
+      fs.readFileSync(
+        process.env.WORKER_HEALTH_FILE || "/tmp/tuinwerk-worker-health",
+        "utf8",
+      ),
+    );
     const pulse = JSON.parse(
       fs.readFileSync("/data/control/heartbeat.json", "utf8"),
     );

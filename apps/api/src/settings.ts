@@ -129,6 +129,21 @@ export const settingDefinitions: Record<string, Definition> = {
   oneDriveClientId: { default: "", kind: "string", max: 100 },
   oneDriveTenantId: { default: "consumers", kind: "string", max: 100 },
   oneDriveFolder: { default: "TuinWerk Backups", kind: "string", max: 120 },
+  adminMfaRequired: {
+    env: "ADMIN_MFA_REQUIRED",
+    default: false,
+    kind: "boolean",
+  },
+  sensitiveActionReauth: {
+    env: "SENSITIVE_ACTION_REAUTH",
+    default: false,
+    kind: "boolean",
+  },
+  koppelingEnabled: {
+    env: "KOPPELING_ENABLED",
+    default: false,
+    kind: "boolean",
+  },
 };
 const secretEnvs: Record<string, string | undefined> = {
   smtpPassword: "SMTP_PASSWORD",
@@ -493,6 +508,15 @@ export class SettingsController {
       )
     )
       throw new BadRequestException("Ongeldig te wissen geheim");
+    if (values.adminMfaRequired === true) {
+      const [actor] = await query("SELECT mfa_enabled FROM users WHERE id=$1", [
+        u.id,
+      ]);
+      if (!actor?.mfa_enabled)
+        throw new BadRequestException(
+          "Schakel eerst je eigen tweede factor in voordat je deze verplicht maakt voor beheerders",
+        );
+    }
     await transaction(async (c) => {
       const oneDriveChanged = [
         "oneDriveClientId",

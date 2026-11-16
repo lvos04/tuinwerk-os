@@ -34,6 +34,8 @@ services:
       UPLOAD_DIR: /data/uploads
       MIGRATIONS_DIR: /app/migrations
       AI_ENABLED: 'false'
+      # Caddy draait in een eigen container op het interne Docker-netwerk.
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
     depends_on:
       db: {condition: service_healthy}
     restart: 'no'

@@ -10,7 +10,42 @@ import {
 } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import helmet from "helmet";
+import { json } from "express";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { AppModule } from "./app.module";
+/**
+ * JSON-routes die meer dan de standaardlimiet nodig hebben: imports met een
+ * base64-bestand (CSV/XLSX tot 6 MB) en het bevestigen van een telling (tot
+ * 10.000 regels). Bijlagen en back-uparchieven gaan via multipart (eigen limiet).
+ */
+export const LARGE_JSON_ROUTES = [
+  /^\/api\/imports\/preview\/?$/,
+  /^\/api\/imports\/catalog\/preview\/?$/,
+  /^\/api\/inventory\/counts\/[^/]+\/confirm\/?$/,
+];
+/** TRUST_PROXY: leeg = "loopback"; "false"/"0" = uit; getal = aantal hops; anders lijst van adressen/subnetten. */
+export function trustProxySetting(value: string | undefined) {
+  const v = (value ?? "").trim();
+  if (!v) return "loopback";
+  if (["false", "0", "off", "nee"].includes(v.toLowerCase())) return false;
+  if (["true", "on", "ja"].includes(v.toLowerCase())) return true;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+export function appVersion() {
+  if (process.env.APP_VERSION) return process.env.APP_VERSION;
+  try {
+    return JSON.parse(
+      readFileSync(resolve(__dirname, "../package.json"), "utf8"),
+    ).version as string;
+  } catch {
+    return "onbekend";
+  }
+}
 @Catch()
 class Errors implements ExceptionFilter {
   catch(e: any, host: ArgumentsHost) {
@@ -42,7 +77,26 @@ export async function createApp() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
   });
-  app.useBodyParser("json", { limit: "9mb" });
+  // Vertrouwde proxy voor X-Forwarded-For (aanmeldbeperking per IP). Standaard
+  // alleen loopback: de gebundelde nginx in de container draait op 127.0.0.1.
+  app.set("trust proxy", trustProxySetting(process.env.TRUST_PROXY));
+  // Kleine standaardlimiet; alleen imports (base64-bestand in JSON) mogen groter.
+  const largeJson = json({ limit: process.env.JSON_LARGE_BODY_LIMIT || "9mb" });
+  const smallJson = json({ limit: process.env.JSON_BODY_LIMIT || "1mb" });
+  app.use((req: any, res: any, next: any) =>
+    (LARGE_JSON_ROUTES.some((r) => r.test(req.path)) ? largeJson : smallJson)(
+      req,
+      res,
+      next,
+    ),
+  );
+  app.use((err: any, _req: any, res: any, next: any) => {
+    if (err?.type === "entity.too.large")
+      return res.status(413).json({ message: "Aanvraag is te groot" });
+    if (err?.type === "entity.parse.failed")
+      return res.status(400).json({ message: "Ongeldige JSON" });
+    next(err);
+  });
   app.useBodyParser("urlencoded", { limit: "100kb", extended: false });
   app.setGlobalPrefix("api");
   app.use(helmet());
@@ -66,7 +120,7 @@ export async function createApp() {
     .setDescription(
       "Geauthenticeerde API; zie docs/API.md voor mutatievelden en offline protocol.",
     )
-    .setVersion("0.2.0")
+    .setVersion(appVersion())
     .addBearerAuth()
     .build();
   SwaggerModule.setup(

@@ -106,7 +106,7 @@ async function writeDelta(
 ) {
   const result = (
     await c.query(
-      "UPDATE inventory_balances SET quantity=quantity+$3,version=version+1 WHERE item_id=$1 AND location_id=$2 AND quantity+$3>=0 RETURNING *",
+      "UPDATE inventory_balances SET quantity=quantity+$3,version=version+1,updated_at=now() WHERE item_id=$1 AND location_id=$2 AND quantity+$3>=0 RETURNING *",
       [b.item_id, b.location_id, delta],
     )
   ).rows[0];
@@ -482,7 +482,7 @@ export class InventoryController {
       const minimum = b.minimum === null ? null : amount(b.minimum);
       const result = (
         await c.query(
-          "UPDATE inventory_balances SET minimum=$3,version=version+1 WHERE item_id=$1 AND location_id=$2 RETURNING *",
+          "UPDATE inventory_balances SET minimum=$3,version=version+1,updated_at=now() WHERE item_id=$1 AND location_id=$2 RETURNING *",
           [itemId, locationId, minimum],
         )
       ).rows[0];

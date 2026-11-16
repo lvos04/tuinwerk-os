@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { pool, query } from "../src/db";
 import { passwordHash } from "../src/auth";
 import { createApp } from "../src/main";
+import { writeSetting } from "../src/settings";
 import { parseDatasetParams, resetKoppelingRateLimit } from "../src/koppeling";
 after(() => pool.end());
 
@@ -41,6 +42,7 @@ test(
     const app = await createApp();
     await app.listen(0, "127.0.0.1");
     try {
+      await writeSetting("koppelingEnabled", true);
       const base = (await app.getUrl()) + "/api";
       const suffix = randomUUID();
       const adminEmail = `koppel-admin-${suffix}@test.invalid`,
@@ -138,6 +140,24 @@ test(
         assert.equal(r.status, 401);
         assert.deepEqual(await r.json(), { fout: "ongeldige_koppelsleutel" });
       }
+
+      // Standaard uit: 403 koppeling_uitgeschakeld, ook met een geldige sleutel.
+      await writeSetting("koppelingEnabled", false);
+      for (const token of [key.sleutel, undefined]) {
+        const off = await call("/koppeling/v1/info", token);
+        assert.equal(off.status, 403);
+        assert.deepEqual(await off.json(), { fout: "koppeling_uitgeschakeld" });
+      }
+      assert.equal(
+        (await call("/koppeling/v1/datasets/voorraad", key.sleutel)).status,
+        403,
+      );
+      // Sleutelbeheer blijft beschikbaar als de koppeling uit staat.
+      assert.equal(
+        (await call("/admin/koppelsleutels", adminToken)).status,
+        200,
+      );
+      await writeSetting("koppelingEnabled", true);
 
       const info = await call("/koppeling/v1/info", key.sleutel);
       assert.equal(info.status, 200);
@@ -314,6 +334,50 @@ test(
       assert.equal(planning2.items.length, 21);
       assert.equal(planning2.volgende_cursor, null);
 
+      // Minimum wijzigen zet inventory_balances.updated_at; voorraad toont het.
+      const [loc] = await query(
+        "INSERT INTO locations(name) VALUES($1) RETURNING id",
+        ["Koppelvoorraad " + suffix],
+      );
+      const [stockItem] = await query(
+        "INSERT INTO inventory_items(sku,name,created_at,updated_at) VALUES($1,'Koppelartikel',now()-interval '3 days',now()-interval '3 days') RETURNING id",
+        ["KOP-" + suffix],
+      );
+      await query(
+        "INSERT INTO inventory_balances(item_id,location_id,updated_at) VALUES($1,$2,now()-interval '3 days')",
+        [stockItem.id, loc.id],
+      );
+      const stockSince = new Date(Date.now() - 60000).toISOString();
+      const stockUrl = `/koppeling/v1/datasets/voorraad?limiet=500&sinds=${encodeURIComponent(stockSince)}`;
+      const before = (await (await call(stockUrl, key.sleutel)).json()) as any;
+      assert.ok(!before.items.some((x: any) => x.id === stockItem.id));
+      const patched = await call(
+        `/inventory/balances/${stockItem.id}/${loc.id}`,
+        adminToken,
+        { version: 1, minimum: 5 },
+        "PATCH",
+      );
+      assert.equal(patched.status, 200);
+      const [bal] = await query(
+        "SELECT updated_at FROM inventory_balances WHERE item_id=$1",
+        [stockItem.id],
+      );
+      assert.ok(Date.now() - new Date(bal.updated_at).getTime() < 60000);
+      const afterStock = (await (
+        await call(stockUrl, key.sleutel)
+      ).json()) as any;
+      const stockRow = afterStock.items.find((x: any) => x.id === stockItem.id);
+      assert.ok(stockRow, "voorraad bevat het gewijzigde saldo");
+      assert.equal(stockRow.onder_minimum, true);
+      await query("DELETE FROM inventory_balances WHERE item_id=$1", [
+        stockItem.id,
+      ]);
+      await query("DELETE FROM audit_events WHERE entity_id=$1", [
+        stockItem.id,
+      ]);
+      await query("DELETE FROM inventory_items WHERE id=$1", [stockItem.id]);
+      await query("DELETE FROM locations WHERE id=$1", [loc.id]);
+
       const unknown = await call(
         "/koppeling/v1/datasets/medewerkers",
         key.sleutel,
@@ -392,6 +456,7 @@ test(
         [seeded],
       );
     } finally {
+      await writeSetting("koppelingEnabled", false);
       await app.close();
     }
   },

@@ -5,6 +5,7 @@ import {
   Controller,
   Delete,
   ExecutionContext,
+  ForbiddenException,
   Get,
   Header,
   HttpCode,
@@ -21,7 +22,14 @@ import {
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { AdminGuard, AuthGuard, CurrentUser, User, hash } from "./auth";
+import {
+  AdminGuard,
+  AuthGuard,
+  CurrentUser,
+  User,
+  hash,
+  requireRecentReauth,
+} from "./auth";
 import { audit, query, transaction } from "./db";
 import { currentBackupHealth } from "./backups";
 import { occupiedMinutes } from "./productivity";
@@ -97,9 +105,14 @@ function rateLimited(id: string, now = Date.now()) {
   return entry.count > RATE_LIMIT_PER_MINUTE;
 }
 
+/** Instelling "Bedrijfskoppeling ingeschakeld" (koppelingEnabled / KOPPELING_ENABLED), standaard uit. */
+export const koppelingEnabled = () => process.env.KOPPELING_ENABLED === "true";
+
 @Injectable()
 export class KoppelingGuard implements CanActivate {
   async canActivate(ctx: ExecutionContext) {
+    if (!koppelingEnabled())
+      throw new ForbiddenException({ fout: "koppeling_uitgeschakeld" });
     const req = ctx.switchToHttp().getRequest();
     const header = req.headers.authorization;
     const match =
@@ -578,7 +591,7 @@ export async function koppelingDataset(
     );
   else if (naam === "voorraad")
     result = await keyset(
-      `SELECT i.id,i.sku,i.name AS naam,i.category AS categorie,i.unit AS eenheid,b.quantity::text AS voorraad,i.minimum::text AS minimum,(i.active AND (b.quantity<i.minimum OR b.low)) AS onder_minimum,i.supplier AS leverancier,i.active AS actief,GREATEST(i.updated_at,m.last) AS bijgewerkt_op FROM inventory_items i CROSS JOIN LATERAL (SELECT COALESCE(sum(quantity),0) AS quantity,COALESCE(bool_or(minimum IS NOT NULL AND quantity<minimum),false) AS low FROM inventory_balances WHERE item_id=i.id) b LEFT JOIN LATERAL (SELECT max(created_at) AS last FROM inventory_movements WHERE item_id=i.id) m ON true`,
+      `SELECT i.id,i.sku,i.name AS naam,i.category AS categorie,i.unit AS eenheid,b.quantity::text AS voorraad,i.minimum::text AS minimum,(i.active AND (b.quantity<i.minimum OR b.low)) AS onder_minimum,i.supplier AS leverancier,i.active AS actief,GREATEST(i.updated_at,m.last,b.updated) AS bijgewerkt_op FROM inventory_items i CROSS JOIN LATERAL (SELECT COALESCE(sum(quantity),0) AS quantity,COALESCE(bool_or(minimum IS NOT NULL AND quantity<minimum),false) AS low,max(updated_at) AS updated FROM inventory_balances WHERE item_id=i.id) b LEFT JOIN LATERAL (SELECT max(created_at) AS last FROM inventory_movements WHERE item_id=i.id) m ON true`,
       [],
       p,
       (row) => ({
@@ -689,6 +702,7 @@ export class KoppelsleutelsController {
     ).map(keyOut);
   }
   @Post() async create(@CurrentUser() u: User, @Body() b: any) {
+    requireRecentReauth(u);
     const naam = typeof b?.naam === "string" ? b.naam.trim() : "";
     if (!naam || naam.length > 100)
       throw new BadRequestException("Geef een naam van 1–100 tekens");

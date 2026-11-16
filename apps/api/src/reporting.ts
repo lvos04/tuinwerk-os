@@ -24,8 +24,15 @@ import { createHash } from "node:crypto";
 import { statfs, mkdir, writeFile, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { query, transaction, camel, audit } from "./db";
-import { AuthGuard, AdminGuard, CurrentUser, User } from "./auth";
+import {
+  AuthGuard,
+  AdminGuard,
+  CurrentUser,
+  User,
+  requireRecentReauth,
+} from "./auth";
 import { deliverNotifications } from "./notification-delivery";
+import { workerHealthFile } from "./worker-health";
 import { containsProhibitedText } from "./moderation";
 import {
   parseCsv,
@@ -118,16 +125,25 @@ function pdfBuffer(draw: (doc: PDFKit.PDFDocument) => void): Promise<Buffer> {
 export class ReportingController {
   @Get("reports/summary") async summary(@Query() q: Record<string, string>) {
     const f = filters(q);
-    const tasks = await query<any>(
-      `SELECT t.*,a.name asset_name,l.name location_name FROM tasks t LEFT JOIN assets a ON a.id=t.asset_id LEFT JOIN locations l ON l.id=t.location_id ${f.where}`,
+    const OPEN = "t.status NOT IN ('completed','cancelled','archived')";
+    const [totals] = await query<any>(
+      `SELECT count(*)::integer total,count(*) FILTER(WHERE ${OPEN})::integer open,count(*) FILTER(WHERE t.completed_at IS NOT NULL)::integer completed,count(*) FILTER(WHERE t.status='blocked')::integer blocked,count(*) FILTER(WHERE t.deadline<now() AND ${OPEN})::integer overdue,avg(extract(epoch FROM t.completed_at-t.created_at)/3600) FILTER(WHERE t.completed_at IS NOT NULL) mean_hours FROM tasks t ${f.where}`,
       f.values,
     );
-    const closed = tasks.filter((t) => t.completed_at);
-    const byAsset: Record<string, number> = {};
-    for (const t of tasks)
-      if (t.category === "reparatie" || t.category === "storing")
-        byAsset[t.asset_name || "Geen machine"] =
-          (byAsset[t.asset_name || "Geen machine"] || 0) + 1;
+    const faults = await query<any>(
+      `SELECT coalesce(nullif(a.name,''),'Geen machine') asset_name,count(*)::integer n FROM tasks t LEFT JOIN assets a ON a.id=t.asset_id ${f.where ? f.where + " AND" : "WHERE"} t.category IN ('reparatie','storing') GROUP BY 1 ORDER BY 1`,
+      f.values,
+    );
+    const weeks = await query<any>(
+      `SELECT to_char(date_trunc('week',t.planned_at AT TIME ZONE 'UTC'),'YYYY-MM-DD') week,count(*)::integer n FROM tasks t ${f.where ? f.where + " AND" : "WHERE"} t.planned_at IS NOT NULL AND ${OPEN} GROUP BY 1 ORDER BY 1`,
+      f.values,
+    );
+    const byAsset: Record<string, number> = Object.fromEntries(
+      faults.map((r) => [r.asset_name, r.n]),
+    );
+    const workload: Record<string, number> = Object.fromEntries(
+      weeks.map((r) => [r.week, r.n]),
+    );
     const time = await query<any>(
       `SELECT coalesce(sum(te.minutes),0) minutes FROM time_entries te JOIN tasks t ON t.id=te.task_id ${f.where}`,
       f.values,
@@ -140,47 +156,20 @@ export class ReportingController {
       `SELECT t.asset_id,a.name asset_name,i.id item_id,i.name item_name,sum(-m.delta) quantity FROM inventory_movements m JOIN tasks t ON t.id=m.task_id JOIN inventory_items i ON i.id=m.item_id LEFT JOIN assets a ON a.id=t.asset_id ${f.where ? f.where + " AND" : "WHERE"} m.type='usage' GROUP BY t.asset_id,a.name,i.id,i.name ORDER BY quantity DESC`,
       f.values,
     );
-    const workload: Record<string, number> = {};
-    for (const task of tasks) {
-      if (
-        task.planned_at &&
-        !["completed", "cancelled", "archived"].includes(task.status)
-      ) {
-        const d = new Date(task.planned_at);
-        d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-        const week = d.toISOString().slice(0, 10);
-        workload[week] = (workload[week] || 0) + 1;
-      }
-    }
     return {
       blockedHours: Number(blocked[0].hours),
       partsByAsset: parts.map(camel),
       workloadByWeek: workload,
-      total: tasks.length,
-      open: tasks.filter(
-        (t) => !["completed", "cancelled", "archived"].includes(t.status),
-      ).length,
-      completed: closed.length,
-      blocked: tasks.filter((t) => t.status === "blocked").length,
-      overdue: tasks.filter(
-        (t) =>
-          t.deadline &&
-          new Date(t.deadline) < new Date() &&
-          !["completed", "cancelled", "archived"].includes(t.status),
-      ).length,
+      total: totals.total,
+      open: totals.open,
+      completed: totals.completed,
+      blocked: totals.blocked,
+      overdue: totals.overdue,
       minutes: Number(time[0].minutes),
-      meanResolutionHours: closed.length
-        ? closed.reduce(
-            (s, t) =>
-              s +
-              (new Date(t.completed_at).getTime() -
-                new Date(t.created_at).getTime()) /
-                3600000,
-            0,
-          ) / closed.length
-        : null,
+      meanResolutionHours:
+        totals.mean_hours === null ? null : Number(totals.mean_hours),
       faultsByAsset: byAsset,
-      sampleSize: closed.length,
+      sampleSize: totals.completed,
       definition:
         "Doorlooptijd = uren tussen aanmaak en afronding; storingen = categorie reparatie of storing. Filters gelden op aanmaakdatum van taken. Kleine aantallen geven geen betrouwbare trend.",
       filters: q,
@@ -913,9 +902,7 @@ export class ReportingController {
       lastFailure = await readTimestamp("last-backup-failure");
     let lastWorkerSuccess: string | null = null;
     try {
-      const stamp = Number(
-        (await readFile("/tmp/tuinwerk-worker-health", "utf8")).trim(),
-      );
+      const stamp = Number((await readFile(workerHealthFile(), "utf8")).trim());
       if (Number.isFinite(stamp) && stamp > 0)
         lastWorkerSuccess = new Date(stamp).toISOString();
     } catch {}
@@ -961,7 +948,9 @@ export class ReportingController {
   }
   @Get("admin/export") @UseGuards(AdminGuard) async dataExport(
     @Res() res: Response,
+    @CurrentUser() user: User,
   ) {
+    requireRecentReauth(user);
     const data = await transaction(async (c) => {
       await c.query(
         "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",

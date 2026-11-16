@@ -11,16 +11,17 @@ import {
 import { randomBytes } from "node:crypto";
 import {
   AuthGuard,
-  AdminGuard,
+  AdminRoleGuard,
   CurrentUser,
   User,
   passwordMatches,
   hash,
+  adminMfaRequired,
 } from "./auth";
 import { query, transaction, audit } from "./db";
 import { base32, encryptSecret, decryptSecret, verifyTotp } from "./totp";
 @Controller("auth/mfa")
-@UseGuards(AuthGuard, AdminGuard)
+@UseGuards(AuthGuard, AdminRoleGuard)
 export class MfaController {
   @Get() async status(@CurrentUser() u: User) {
     const [r] = await query("SELECT mfa_enabled FROM users WHERE id=$1", [
@@ -29,6 +30,7 @@ export class MfaController {
     return {
       enabled: r.mfa_enabled,
       available: true,
+      requiredForAdmins: adminMfaRequired(),
     };
   }
   @Post("setup") async setup(@CurrentUser() u: User, @Body() b: any) {
