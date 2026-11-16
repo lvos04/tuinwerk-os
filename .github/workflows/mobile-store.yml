@@ -1,5 +1,8 @@
 name: Build and stage native store releases
 on:
+  # Een versietag vX.Y.Z bouwt automatisch een interne Android-APK (geen store-upload).
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       target:
@@ -15,7 +18,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: mobile-store-${{ inputs.target }}
+  group: mobile-store-${{ inputs.target || 'android-apk' }}
   cancel-in-progress: false
 jobs:
   native:
@@ -45,8 +48,8 @@ jobs:
       - name: Select artifact
         id: target
         env:
-          TARGET: ${{ inputs.target }}
-          SUBMIT: ${{ inputs.submit }}
+          TARGET: ${{ inputs.target || 'android-apk' }}
+          SUBMIT: ${{ inputs.submit == true }}
         run: |
           case "$TARGET" in
             android-play) echo 'platform=android' >> "$GITHUB_OUTPUT"; echo 'profile=production' >> "$GITHUB_OUTPUT" ;;
@@ -57,7 +60,7 @@ jobs:
       - name: Prepare optional submission credentials
         if: inputs.submit
         env:
-          TARGET: ${{ inputs.target }}
+          TARGET: ${{ inputs.target || 'android-apk' }}
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           APPLE_ASC_API_KEY_P8: ${{ secrets.APPLE_ASC_API_KEY_P8 }}
           APPLE_ASC_KEY_ID: ${{ vars.APPLE_ASC_KEY_ID }}
@@ -79,7 +82,7 @@ jobs:
       - name: Validate and prepare nonsecret build metadata
         env:
           MOBILE_PLATFORM: ${{ steps.target.outputs.platform }}
-          SUBMIT: ${{ inputs.submit }}
+          SUBMIT: ${{ inputs.submit == true }}
           MOBILE_READINESS_REPORT: mobile-readiness.json
         run: |
           if [ "$SUBMIT" = true ]; then
@@ -121,7 +124,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-release-readiness-${{ inputs.target }}
+          name: native-release-readiness-${{ inputs.target || 'android-apk' }}
           path: |
             mobile-readiness.json
             ${{ runner.temp }}/mobile-build.json
