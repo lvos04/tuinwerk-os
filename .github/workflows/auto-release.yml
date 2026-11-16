@@ -1,0 +1,37 @@
+name: Release bij nieuwe versie
+# Staat er op de standaardbranch een versie waarvoor nog geen release vX.Y.Z bestaat, dan maakt
+# deze workflow de GitHub-release (met tag) aan en start de release-builds op die tag:
+# image met versienummer en latest, plus interne Android-APK via Expo.
+# Een nieuwe release maken = het versienummer ophogen en dat op de standaardbranch zetten.
+on:
+  push:
+    branches: ['**']
+permissions:
+  contents: write
+  actions: write
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versie bepalen
+        id: versie
+        run: echo "versie=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Release en builds starten als de versie nieuw is
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSIE: ${{ steps.versie.outputs.versie }}
+        run: |
+          tag="v$VERSIE"
+          if gh release view "$tag" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "Release $tag bestaat al; niets te doen." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          gh workflow run release-image.yml --ref "$tag"
+          gh workflow run mobile-store.yml --ref "$tag" -f target=android-apk -f submit=false
+          echo "Release $tag aangemaakt en builds gestart." >> "$GITHUB_STEP_SUMMARY"
