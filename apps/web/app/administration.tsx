@@ -20,6 +20,7 @@ import {
 } from "./system-settings";
 import { BackupPanel } from "./backup-panel";
 import { AdvancedTools } from "./tools2";
+import { BusinessLinkKeys } from "./business-link";
 const json = (body: Row): RequestInit => ({
   method: "POST",
   body: JSON.stringify(body),
@@ -499,6 +500,7 @@ export function Administration({
             />
             <OneDriveConnection api={api} onChanged={changed} />
             <IntegrationTests api={api} revision={revision} />
+            <BusinessLinkKeys api={api} />
           </>
         )}
         {tab === "backups" && (

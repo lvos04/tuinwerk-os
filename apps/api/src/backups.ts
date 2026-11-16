@@ -594,6 +594,10 @@ export function assessBackupHealth(input: any, now = new Date()) {
     alerts,
   };
 }
+/** Read-only health snapshot for integrations (no side effects, no helper calls). */
+export async function currentBackupHealth(now = new Date()) {
+  return backupHealth(await config(), await helperStatus(), now);
+}
 async function backupHealth(configValues: any, helper: any, now = new Date()) {
   const lastLocal = (
     await query(

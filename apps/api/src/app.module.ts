@@ -1,4 +1,5 @@
 import { BackupsController } from "./backups";
+import { KoppelingController, KoppelsleutelsController } from "./koppeling";
 import { IntegrationsController } from "./integrations";
 import { ProductivityController } from "./productivity";
 import { PublicInfoController } from "./public-info";
@@ -25,6 +26,8 @@ import { RecurrenceController, SeasonController } from "./recurrence";
 import { ReportingController } from "./reporting";
 @Module({
   controllers: [
+    KoppelingController,
+    KoppelsleutelsController,
     ModerationController,
     AccountPrivacyController,
     PublicInfoController,
