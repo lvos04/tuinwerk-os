@@ -25,6 +25,8 @@ Plan volledige versleutelde back-ups vanuit **Beheer → Instellingen → Back-u
 
 Versie 0.2 voegt een eenvoudiger mobiel startscherm, favorieten, een taakwerkpaneel, zichtbare synchronisatieconflicten, capaciteitsplanning en gebundelde meldingen toe. Beheer is verdeeld in overzichtelijke onderdelen met verbindingstests en duidelijke back-upgezondheid. Zie [de verbeteringen](docs/VERBETERINGEN_0_2.md).
 
+Versie 0.3 voegt optionele extra beveiliging toe (MFA verplicht voor beheerders, herbevestiging bij gevoelige acties, aanmeldbeperking per account en IP achter een vertrouwde proxy), een optionele Bedrijfskoppeling (standaard uit), kleinere aanvraaglimieten, opschonen van verlopen sessies, migratiechecksums en snellere rapportages. Alle nieuwe opties staan standaard uit of behouden het bestaande gedrag. Zie [de verbeteringen in 0.3](docs/VERBETERINGEN_0_3.md).
+
 De mobiele productieprofielen richten zich op App Store en Google Play. [Store-uitrol](docs/mobile/STORE_RELEASE.md), [Apple-controle](docs/mobile/APPLE_REVIEW_CHECK.md) en [toestelacceptatie](docs/mobile/MOBILE_DEVICE_ACCEPTANCE.md) beschrijven de concrete voorbereiding en resterende stappen met eigen accounts en apparaten. Accountverwijdering, publieke privacy/supportpagina’s, moderatie en toestemming voor de actuele AI-provider zijn toegevoegd.
 
 ## Ontwikkelen

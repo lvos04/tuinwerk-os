@@ -54,6 +54,8 @@ Maak vóór een update een volledige versleutelde back-up en noteer de image-tag
 
 ## Technische inrichting
 
+**Achter een extra reverse proxy of tunnel.** De app vertrouwt standaard alleen de ingebouwde nginx (`TRUST_PROXY=loopback`) voor het echte client-IP; dat is juist voor een directe installatie op `http://NAS-IP:30091`. Staat er nog een reverse proxy vóór (bijv. Nginx Proxy Manager, Traefik of een Cloudflare-tunnel op een ander adres), voeg dan in de Custom App de omgevingsvariabele `TRUST_PROXY` toe met het adres van die proxy, bijvoorbeeld `loopback,192.168.1.10`, of `2` voor twee proxy-hops. Zonder deze instelling werkt de app ook, maar telt de aanmeldbeperking per IP alle gebruikers achter die proxy samen. Zie [BEHEER_BEVEILIGING.md](BEHEER_BEVEILIGING.md) voor alle optionele variabelen.
+
 Eén Alpine-image beheert PostgreSQL 17, API, Next-webapp, onderhoudsworker, nginx en de beperkte back-uphelper via supervisor. De container begint als root voor procesbeheer; applicatie en database draaien met afzonderlijke gebruikers. De helper accepteert uitsluitend de vastgelegde back-up-/herstelopdrachten vanuit de geautoriseerde API. Er is geen Docker-socketmount of privileged container nodig. Compose-bestanden in de repository zijn ontwikkelvoorzieningen.
 
 Bron voor de GUI-velden: [TrueNAS Custom App Screens](https://www.truenas.com/docs/scale/apps/installcustomappscreens/). Kies de guided wizard **Install Custom App**. De werkelijke installatie op de doel-NAS, de eigen TLS-route en de getekende mobiele releases blijven afzonderlijke acceptatietests.

@@ -21,6 +21,8 @@ Publiek wijzigbare instellingen:
 - AI: `aiEnabled`, `aiBaseUrl` (HTTPS), `aiModel`, `aiDailyTokenBudget`, `aiDailyBudgetEur`, `aiInputEurPerMillion`, `aiOutputEurPerMillion`; geheim `aiApiKey`.
 - Push: `pushEnabled`; geheim `expoAccessToken`.
 - Gebruik: `maxUploadBytes` (1 KiB–50 MiB), `recurrenceLookaheadDays` (0–366 dagen).
+- Beveiliging (standaard uit): `adminMfaRequired` (MFA verplicht voor beheerders; alleen aan te zetten door een beheerder met eigen MFA), `sensitiveActionReauth` (herbevestiging bij back-up terugzetten, volledige export en koppelsleutel aanmaken).
+- Bedrijfskoppeling: `koppelingEnabled` (standaard uit; zie [koppeling-api.md](koppeling-api.md)).
 - OneDrive: `oneDriveClientId`, `oneDriveTenantId`, `oneDriveFolder`. Aanmelden/afmelden gebruikt de speciale OneDrive-controller. De interne refresh-token kan niet via generieke instellingen worden gelezen, vervangen of gewist.
 
 Back-upvelden zijn in de snapshot zichtbaar, maar kunnen uitsluitend via de speciale back-upconfiguratie worden gewijzigd. Dat bewaakt herstelcodebevestiging voordat automatische back-ups worden geactiveerd. `backupPassphrase` en `oneDriveRefreshToken` zijn interne geheimen; generieke PATCH weigert deze.

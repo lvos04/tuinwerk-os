@@ -11,6 +11,14 @@ dit document beschrijft het contract en de app-specifieke KPI's en datasets.
   omdat de database ze als decimaal opslaat.
 * Alle antwoorden hebben `Cache-Control: no-store`.
 
+## In- en uitschakelen
+
+De koppeling is **optioneel en staat standaard uit** (instelling `koppelingEnabled`, omgevingsvariabele
+`KOPPELING_ENABLED` als beginwaarde). Zet haar aan via **Beheer → Integraties → Bedrijfskoppeling →
+"Bedrijfskoppeling ingeschakeld"**. Zolang de koppeling uit staat, antwoorden alle routes onder
+`/api/koppeling/v1/*` met `403 {"fout": "koppeling_uitgeschakeld"}`, ook met een geldige sleutel en ook zonder
+sleutel. Sleutelbeheer blijft beschikbaar, zodat je sleutels vooraf kunt aanmaken of intrekken.
+
 ## Authenticatie: koppelsleutels
 
 `Authorization: Bearer bk_…`. Zonder sleutel, met een onbekende of ingetrokken sleutel, of met een gewone
@@ -29,8 +37,11 @@ gewone API.
 ### Beheer (alleen beheerders)
 
 Via de bestaande beheer-API met de normale sessie-auth (`Authorization: Bearer <sessietoken>`, rol `admin`).
-De web-app gebruikt Bearer-tokens in plaats van cookies, dus CSRF is niet van toepassing. Er geldt geen
-aparte MFA-eis voor beheer; een beheerder met ingeschakelde tweede factor heeft die al bij het inloggen gebruikt.
+De web-app gebruikt Bearer-tokens in plaats van cookies, dus CSRF is niet van toepassing. Staat de instelling
+"Tweede factor verplicht voor beheerders" aan, dan moet de beheerder MFA hebben ingeschakeld. Staat
+"Herbevestiging bij gevoelige acties" aan, dan vraagt `POST /api/admin/koppelsleutels` om een recente
+herbevestiging (`POST /api/auth/reauth`, zie [API.md](API.md)); zonder herbevestiging volgt
+`403 {"reauthRequired": true, "method": "password" | "otp"}`. Beide staan standaard uit.
 
 | Methode | Pad | Resultaat |
 | --- | --- | --- |
@@ -51,7 +62,7 @@ In de web-app: **Beheer → Integraties → Bedrijfskoppeling** (aanmaken, eenma
 {
   "app": "tuinwerk-os",
   "naam": "TuinWerk OS",
-  "versie": "0.2.0",
+  "versie": "0.3.0",
   "api_versie": "1",
   "bedrijf": "Bedrijfsnaam uit Beheer → Instellingen of null",
   "datasets": ["samenvatting", "storingen", "onderhoudstaken", "voorraad", "planning"],
@@ -110,8 +121,8 @@ achterstallig, geschatte_minuten, afgerond_op, bijgewerkt_op`.
 #### `voorraad`
 Alle artikelen (ook inactieve, zodat het dashboard deactivering via `sinds` ziet).
 `id, sku, naam, categorie, eenheid, voorraad, minimum, onder_minimum, leverancier, actief, bijgewerkt_op`.
-`bijgewerkt_op` = laatste wijziging van het artikel of laatste voorraadmutatie. Een gewijzigd
-locatieminimum zonder mutatie verschuift `bijgewerkt_op` niet.
+`bijgewerkt_op` = laatste wijziging van het artikel, van een voorraadsaldo (ook een gewijzigd locatieminimum;
+kolom `inventory_balances.updated_at` sinds migratie `021`) of laatste voorraadmutatie.
 
 #### `planning`
 Berekende capaciteit per kalenderdag (app-tijdzone), **zonder** gegevens per medewerker. Venster van 28 dagen
@@ -142,5 +153,6 @@ curl -H "Authorization: Bearer $KOPPELSLEUTEL" \
 
 `apps/api/test/koppeling.integration.test.ts` (draait met `DATABASE_URL`): 401 zonder/ongeldige/ingetrokken
 sleutel en met sessietoken, aanmaken (eenmalig tonen, alleen hash opgeslagen, audit), info/samenvatting-vorm,
-datasets met `limiet`/`sinds`/`cursor`, privacy, 404 onbekende dataset, 422 ongeldige parameters, rate limit en
-dat medewerkers geen sleutels kunnen beheren.
+datasets met `limiet`/`sinds`/`cursor`, privacy, 404 onbekende dataset, 422 ongeldige parameters, rate limit,
+dat medewerkers geen sleutels kunnen beheren, `403 koppeling_uitgeschakeld` als de schakelaar uit staat en dat een
+gewijzigd locatieminimum in `voorraad` zichtbaar wordt via `sinds`.

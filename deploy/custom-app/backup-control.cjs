@@ -409,7 +409,7 @@ async function processJob(requestFile) {
           id: r.archive.slice(0, -4),
           createdAt: new Date().toISOString(),
           contents: ["database", "uploads", "exports", "config"],
-          appVersion: process.env.APP_VERSION || "0.2.0",
+          appVersion: process.env.APP_VERSION || "0.3.0",
           manifestVersion: 1,
           databaseSha256: await hash(path.join(work, "database.dump")),
           filesSha256: await hash(path.join(work, "files.tar")),
