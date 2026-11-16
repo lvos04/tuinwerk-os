@@ -1,5 +1,6 @@
 "use client";
 import { ReportContent } from "./moderation";
+import { reauthFromResponse } from "./reauth";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 type Row = Record<string, any>;
 type Api = (path: string, options?: RequestInit) => Promise<any>;
@@ -125,9 +126,23 @@ export function AdvancedTools({
   const download = async (path: string, name: string) => {
     await api("/auth/me");
     const active = sessionStorage.getItem("tuinwerk-token") || token;
-    const r = await fetch("/api" + path, {
-      headers: { Authorization: "Bearer " + active },
-    });
+    const get = () =>
+      fetch("/api" + path, {
+        headers: { Authorization: "Bearer " + active },
+      });
+    let r = await get();
+    if (
+      r.status === 403 &&
+      (await reauthFromResponse(
+        await r.json().catch(() => null),
+        (credentials) =>
+          api("/auth/reauth", {
+            method: "POST",
+            body: JSON.stringify(credentials),
+          }),
+      ))
+    )
+      r = await get();
     if (!r.ok) throw Error("Download niet beschikbaar.");
     saveBlob(await r.blob(), name);
   };
@@ -358,6 +373,12 @@ export function AdvancedTools({
             Beveilig je beheerdersaccount met een authenticator-app. Elke
             herstelcode werkt één keer.
           </p>
+          {mfa?.requiredForAdmins && !mfa?.enabled && (
+            <div className="alert error" role="alert">
+              Een tweede factor is verplicht voor beheerders. Stel deze nu in om
+              beheerfuncties weer te kunnen gebruiken.
+            </div>
+          )}
           {!mfa?.available && (
             <div className="alert error">
               De beveiligingssleutel is nog niet beschikbaar. De server maakt

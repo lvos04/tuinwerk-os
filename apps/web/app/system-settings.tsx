@@ -615,6 +615,26 @@ const sections: {
     ],
   },
   {
+    id: "security",
+    title: "Beveiliging beheerders",
+    description:
+      "Extra beveiliging voor beheerders. Beide opties staan standaard uit, zodat bestaande werkwijzen ongewijzigd blijven.",
+    fields: [
+      {
+        key: "adminMfaRequired",
+        label: "Tweede factor (MFA) verplicht voor beheerders",
+        kind: "checkbox",
+        help: "Beheerders zonder tweede factor kunnen dan alleen nog hun tweede factor instellen; beheerfuncties worden geblokkeerd tot die is ingeschakeld. Schakel eerst je eigen tweede factor in.",
+      },
+      {
+        key: "sensitiveActionReauth",
+        label: "Herbevestiging vragen bij gevoelige acties",
+        kind: "checkbox",
+        help: "Bij back-up terugzetten, volledige gegevensexport en het aanmaken van een koppelsleutel vraagt de app opnieuw om je wachtwoord (of authenticatorcode als MFA aan staat). De bevestiging geldt 5 minuten.",
+      },
+    ],
+  },
+  {
     id: "mail",
     title: "E-mailmeldingen",
     description:
@@ -856,8 +876,8 @@ export function ApplicationSettings({
             {current.fields.map((def) => {
               const value = snapshot.values[def.key],
                 configured = snapshot.configured[def.key];
-              if (def.kind === "checkbox")
-                return (
+              if (def.kind === "checkbox") {
+                const box = (
                   <label className="checkbox" key={def.key}>
                     <input
                       type="checkbox"
@@ -867,6 +887,15 @@ export function ApplicationSettings({
                     {def.label}
                   </label>
                 );
+                return def.help ? (
+                  <div key={def.key} className="checkbox-with-help">
+                    {box}
+                    <small className="muted">{def.help}</small>
+                  </div>
+                ) : (
+                  box
+                );
+              }
               return (
                 <div key={def.key}>
                   <SettingField

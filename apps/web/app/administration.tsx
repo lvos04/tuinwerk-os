@@ -402,7 +402,7 @@ export function Administration({
               api={api}
               onSecurity={onSecurity}
               onChanged={changed}
-              sectionIds={["general", "maintenance"]}
+              sectionIds={["general", "maintenance", "security"]}
             />
             <section className="panel padded system-section">
               <h2>Beveiliging en gegevens</h2>

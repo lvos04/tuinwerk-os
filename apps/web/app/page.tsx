@@ -46,6 +46,7 @@ import { BackupPanel } from "./backup-panel";
 import { Administration } from "./administration";
 import { ReportContent } from "./moderation";
 import { AccountPrivacy } from "./account-privacy";
+import { reauthFromResponse } from "./reauth";
 import {
   FavoriteShortcuts,
   CapacityPlanning,
@@ -250,6 +251,19 @@ function Workspace() {
       try {
         b = await res.json();
       } catch {}
+      if (
+        res.status === 403 &&
+        !retried &&
+        (await reauthFromResponse(b, (credentials) =>
+          api(
+            "/auth/reauth",
+            { method: "POST", body: JSON.stringify(credentials) },
+            auth,
+            true,
+          ),
+        ))
+      )
+        return api(path, options, auth, true);
       if (res.status === 401 && auth) {
         sessionStorage.removeItem("tuinwerk-token");
         sessionStorage.removeItem("tuinwerk-refresh");

@@ -2194,3 +2194,20 @@ hr {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.checkbox-with-help {
+  grid-column: 1 / -1;
+  margin-bottom: 10px;
+}
+.checkbox-with-help .checkbox {
+  margin-bottom: 4px;
+}
+.reauth-dialog {
+  max-width: 420px;
+  width: calc(100% - 32px);
+  border: 0;
+  border-radius: 14px;
+  padding: 0;
+}
+.reauth-dialog::backdrop {
+  background: rgba(15, 23, 18, 0.45);
+}

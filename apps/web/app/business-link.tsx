@@ -18,8 +18,30 @@ export function BusinessLinkKeys({ api }: { api: SettingsApi }) {
     [created, setCreated] = useState<Row | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [copied, setCopied] = useState(false);
-  const load = async () => setKeys(await api("/admin/koppelsleutels"));
+    [copied, setCopied] = useState(false),
+    [settings, setSettings] = useState<Row | null>(null);
+  const load = async () => {
+    const [list, snapshot] = await Promise.all([
+      api("/admin/koppelsleutels"),
+      api("/settings"),
+    ]);
+    setKeys(list);
+    setSettings(snapshot);
+  };
+  const enabled = !!settings?.values?.koppelingEnabled;
+  const toggle = (next: boolean) =>
+    run(async () => {
+      if (!settings) return;
+      setSettings(
+        await api("/settings", {
+          method: "PATCH",
+          body: JSON.stringify({
+            version: settings.version,
+            values: { koppelingEnabled: next },
+          }),
+        }),
+      );
+    });
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, []);
@@ -67,6 +89,20 @@ export function BusinessLinkKeys({ api }: { api: SettingsApi }) {
         alleen-lezen toegang tot kerncijfers via <code>/api/koppeling/v1</code>.
         Er worden geen persoonsgegevens of notities gedeeld. Een sleutel is
         alleen direct na het aanmaken zichtbaar.
+      </p>
+      <label className="checkbox">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={busy || !settings}
+          onChange={(e) => void toggle(e.target.checked)}
+        />
+        Bedrijfskoppeling ingeschakeld
+      </label>
+      <p className="muted">
+        {enabled
+          ? "De koppeling is actief: apps met een geldige sleutel kunnen de gegevens lezen."
+          : "Standaard uit. Zolang de koppeling uit staat, weigert de API elk verzoek (ook met een geldige sleutel). Je kunt sleutels wel alvast aanmaken of intrekken."}
       </p>
       {error && (
         <div className="alert error" role="alert">
